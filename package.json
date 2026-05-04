@@ -38,6 +38,7 @@
   "build": {
     "appId": "com.fortuneflow.desktop",
     "productName": "FortuneFlow",
+    "icon": "public/icon.png",
     "files": [
       "dist/**/*",
       "electron/**/*",
@@ -49,12 +50,14 @@
     },
     "mac": {
       "category": "public.app-category.finance",
+      "icon": "public/icon.png",
       "target": [
         "dmg",
         "zip"
       ]
     },
     "win": {
+      "icon": "public/icon.ico",
       "target": [
         "nsis",
         "zip"

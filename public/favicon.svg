@@ -1,4 +1,18 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <rect width="32" height="32" rx="6" fill="#5645d4"/>
-  <text x="16" y="23" text-anchor="middle" fill="white" font-family="system-ui" font-size="18" font-weight="600">W</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <defs>
+    <linearGradient id="bg" x1="8" y1="6" x2="40" y2="42" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#6D6AF2"/>
+      <stop offset="0.52" stop-color="#5856D6"/>
+      <stop offset="1" stop-color="#0D9488"/>
+    </linearGradient>
+    <linearGradient id="flow" x1="12" y1="33" x2="36" y2="15" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#D1FAE5"/>
+      <stop offset="1" stop-color="#FFFFFF"/>
+    </linearGradient>
+  </defs>
+  <rect x="3" y="3" width="42" height="42" rx="13" fill="url(#bg)"/>
+  <path d="M13 31.5C17.2 31.5 18.6 25.8 22.4 25.8C25.2 25.8 26.1 29 29.1 29C33.1 29 34.7 21.4 38 17.5" fill="none" stroke="url(#flow)" stroke-width="4.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M30.5 17.5H38V25" fill="none" stroke="#FFFFFF" stroke-width="4.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="15" cy="17" r="4.4" fill="#FEF3C7"/>
+  <circle cx="15" cy="17" r="2" fill="#D97706"/>
 </svg>

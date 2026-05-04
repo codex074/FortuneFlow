@@ -2,8 +2,12 @@ import initSqlJs from 'sql.js'
 import type { Database, SqlJsStatic } from 'sql.js'
 import { get, set } from 'idb-keyval'
 
-const DB_KEY = 'fortuneflow-db'
+const DB_KEY_PREFIX = 'fortuneflow-db'
 const LEGACY_DB_KEY = 'wealth-tracker-db'
+
+function getDbKey(userId?: string): string {
+  return userId ? `${DB_KEY_PREFIX}-${userId}` : DB_KEY_PREFIX
+}
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS transactions (
@@ -45,12 +49,13 @@ function locateSqlWasm(file: string): string {
   return new URL(file, window.location.href).href
 }
 
-export async function initDatabase(): Promise<Database> {
+export async function initDatabase(userId?: string): Promise<Database> {
   const SQL = await initSqlJs({
     locateFile: locateSqlWasm,
   })
 
-  const saved = await get<Uint8Array>(DB_KEY) ?? await get<Uint8Array>(LEGACY_DB_KEY)
+  const dbKey = getDbKey(userId)
+  const saved = await get<Uint8Array>(dbKey) ?? (userId ? null : await get<Uint8Array>(LEGACY_DB_KEY))
   const db = saved ? new SQL.Database(saved) : new SQL.Database()
 
   if (!saved) {
@@ -59,7 +64,7 @@ export async function initDatabase(): Promise<Database> {
     runMigrations(db)
   }
 
-  await persistDatabase(db)
+  await persistDatabase(db, userId)
   return db
 }
 
@@ -137,9 +142,15 @@ function runMigrations(db: Database): void {
   }
 }
 
-export async function persistDatabase(db: Database): Promise<void> {
+let _currentUserId: string | undefined
+
+export function setCurrentUserId(userId?: string) {
+  _currentUserId = userId
+}
+
+export async function persistDatabase(db: Database, userId?: string): Promise<void> {
   const data = db.export()
-  await set(DB_KEY, data)
+  await set(getDbKey(userId ?? _currentUserId), data)
 }
 
 export function persistDatabaseDebounced(db: Database): void {

@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react'
 import type { Database } from 'sql.js'
-import { initDatabase, persistDatabaseDebounced, exportDatabase, importDatabase, getSqlJs } from '../lib/db'
+import { initDatabase, persistDatabaseDebounced, exportDatabase, importDatabase, getSqlJs, setCurrentUserId } from '../lib/db'
 import { fetchUsdThbRate } from '../lib/exchangeRate'
 import * as Q from '../lib/queries'
 
@@ -15,7 +15,7 @@ interface DatabaseCtx {
 
 const DatabaseContext = createContext<DatabaseCtx | null>(null)
 
-export function DatabaseProvider({ children }: { children: ReactNode }) {
+export function DatabaseProvider({ children, userId }: { children: ReactNode; userId?: string }) {
   const [db, setDb] = useState<Database | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [version, setVersion] = useState(0)
@@ -23,10 +23,11 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
   const bump = useCallback(() => setVersion((v) => v + 1), [])
 
   useEffect(() => {
-    initDatabase()
+    setCurrentUserId(userId)
+    initDatabase(userId)
       .then(setDb)
       .catch((e) => setError(String(e)))
-  }, [])
+  }, [userId])
 
   useEffect(() => {
     if (!db || !navigator.onLine) return

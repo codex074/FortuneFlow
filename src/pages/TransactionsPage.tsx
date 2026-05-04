@@ -5,7 +5,7 @@ import { formatCurrency, formatDate, todayISO } from '../lib/format'
 import { computeAssetUnits, computeCashBalances, computeCashLedger, getCashAccountName } from '../lib/calc'
 import * as Q from '../lib/queries'
 import { ASSET_TYPE_LABELS, type AssetType, type Currency, type Action, type Transaction } from '../types'
-import { Plus, Pencil, Trash2, X, ArrowUpCircle, Wallet, Landmark } from 'lucide-react'
+import { Plus, Pencil, Trash2, X, ArrowUpCircle, Wallet, Landmark, ArrowRightLeft } from 'lucide-react'
 
 const ASSET_TYPES: AssetType[] = ['stock', 'crypto', 'fund', 'gold', 'bond', 'savings']
 const CURRENCIES: Currency[] = ['THB', 'USD']
@@ -32,6 +32,15 @@ interface CashFormData {
   notes: string
 }
 
+interface ExchangeFormData {
+  date: string
+  fromCurrency: Currency
+  fromAmount: string
+  toCurrency: Currency
+  toAmount: string
+  notes: string
+}
+
 const emptyForm: FormData = {
   date: todayISO(),
   asset_name: '',
@@ -51,6 +60,19 @@ const emptyCashForm: CashFormData = {
   action: 'deposit',
   amount: '',
   notes: '',
+}
+
+const emptyExchangeForm: ExchangeFormData = {
+  date: todayISO(),
+  fromCurrency: 'THB',
+  fromAmount: '',
+  toCurrency: 'USD',
+  toAmount: '',
+  notes: '',
+}
+
+function isFxEntry(notes: string | null): boolean {
+  return !!notes?.startsWith('[FX]')
 }
 
 function isCashEditable(tx: Transaction): boolean {
@@ -87,6 +109,8 @@ export function TransactionsPage() {
   const [cashForm, setCashForm] = useState<CashFormData>(emptyCashForm)
   const [cashDeleteConfirm, setCashDeleteConfirm] = useState<number | null>(null)
   const [cashCurrencyFilter, setCashCurrencyFilter] = useState<Currency | ''>('')
+  const [exchangeModalOpen, setExchangeModalOpen] = useState(false)
+  const [exchangeForm, setExchangeForm] = useState<ExchangeFormData>(emptyExchangeForm)
   const [transactionPage, setTransactionPage] = useState(1)
   const [cashPage, setCashPage] = useState(1)
 
@@ -305,6 +329,63 @@ export function TransactionsPage() {
     setCashDeleteConfirm(null)
   }
 
+  const openExchange = () => {
+    setExchangeForm(emptyExchangeForm)
+    setExchangeModalOpen(true)
+  }
+
+  const handleExchangeSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    const fromAmt = parseFloat(exchangeForm.fromAmount)
+    const toAmt = parseFloat(exchangeForm.toAmount)
+    if (isNaN(fromAmt) || fromAmt <= 0 || isNaN(toAmt) || toAmt <= 0) return
+    if (exchangeForm.fromCurrency === exchangeForm.toCurrency) return
+
+    const fxNote = exchangeForm.notes
+      ? `[FX] ${exchangeForm.notes}`
+      : `[FX] ${exchangeForm.fromCurrency} → ${exchangeForm.toCurrency}`
+
+    Q.insertTransaction(db, {
+      date: exchangeForm.date,
+      asset_name: getCashAccountName(exchangeForm.fromCurrency),
+      asset_type: 'cash',
+      currency: exchangeForm.fromCurrency,
+      action: 'withdraw',
+      units: fromAmt,
+      price_per_unit: 1,
+      fees: 0,
+      notes: fxNote,
+      total_cost_override: fromAmt,
+    })
+
+    Q.insertTransaction(db, {
+      date: exchangeForm.date,
+      asset_name: getCashAccountName(exchangeForm.toCurrency),
+      asset_type: 'cash',
+      currency: exchangeForm.toCurrency,
+      action: 'deposit',
+      units: toAmt,
+      price_per_unit: 1,
+      fees: 0,
+      notes: fxNote,
+      total_cost_override: toAmt,
+    })
+
+    persist()
+    setExchangeModalOpen(false)
+  }
+
+  const exchangeFromBalance = availableCash[exchangeForm.fromCurrency]
+  const exchangeFromAmt = parseFloat(exchangeForm.fromAmount) || 0
+  const exchangeAfterBalance = exchangeFromBalance - exchangeFromAmt
+  const exchangeValidationMessage =
+    exchangeForm.fromCurrency === exchangeForm.toCurrency
+      ? 'Source and destination currencies must be different.'
+      : exchangeAfterBalance < -0.0001
+        ? `This exchange is ${formatCurrency(Math.abs(exchangeAfterBalance), exchangeForm.fromCurrency)} above the available balance.`
+        : null
+  const canSaveExchange = !exchangeValidationMessage
+
   const setField = (field: keyof FormData, value: string) => {
     setForm((prev) => {
       const next = { ...prev, [field]: value }
@@ -355,6 +436,9 @@ export function TransactionsPage() {
           <div className="cash-page-actions">
             <button className="btn btn-secondary" onClick={() => openCashAdd('withdraw')}>
               <ArrowUpCircle size={16} /> Withdraw
+            </button>
+            <button className="btn btn-secondary" onClick={openExchange}>
+              <ArrowRightLeft size={16} /> Exchange
             </button>
             <button className="btn btn-primary" onClick={() => openCashAdd('deposit')}>
               <Plus size={16} /> Deposit Cash
@@ -416,21 +500,27 @@ export function TransactionsPage() {
                   const sourceTx = transactionMap.get(row.id)
                   const editable = sourceTx ? isCashEditable(sourceTx) : false
 
+                  const isFx = isFxEntry(row.notes)
+                  const fxLabel = isFx ? row.notes!.replace('[FX] ', '') : null
+
                   return (
                     <tr key={`${row.id}-${row.currency}`}>
                       <td>{formatDate(row.date)}</td>
                       <td className="font-medium">{getCashAccountName(row.currency)}</td>
                       <td>
                         <div className="cash-source-cell">
-                          <span className={`tx-action-badge ${row.action}`}>{row.action.toUpperCase()}</span>
-                          <span>{cashActionLabel(row.action, sourceTx?.asset_name ?? row.asset_name)}</span>
+                          {isFx
+                            ? <span className="tx-action-badge exchange">EXCHANGE</span>
+                            : <span className={`tx-action-badge ${row.action}`}>{row.action.toUpperCase()}</span>
+                          }
+                          <span>{isFx ? fxLabel : cashActionLabel(row.action, sourceTx?.asset_name ?? row.asset_name)}</span>
                         </div>
                       </td>
                       <td className={row.amount >= 0 ? 'text-success font-medium' : 'text-error font-medium'}>
                         {row.amount >= 0 ? '+' : '-'}{formatCurrency(Math.abs(row.amount), row.currency)}
                       </td>
                       <td className="font-medium">{formatCurrency(row.balance_after, row.currency)}</td>
-                      <td>{row.notes ?? '—'}</td>
+                      <td>{isFx ? fxLabel : (row.notes ?? '—')}</td>
                       <td>
                         {editable ? (
                           <div className="row-actions">
@@ -757,6 +847,130 @@ export function TransactionsPage() {
               <div className="modal-actions">
                 <button type="button" className="btn btn-secondary" onClick={() => setCashModalOpen(false)}>Cancel</button>
                 <button type="submit" className="btn btn-primary" disabled={!canSaveCashEntry}>{cashEditingId !== null ? 'Update' : 'Save'} Cash Entry</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {exchangeModalOpen && (
+        <div className="modal-backdrop" onClick={() => setExchangeModalOpen(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Currency Exchange</h2>
+              <button className="btn-icon" onClick={() => setExchangeModalOpen(false)}><X size={20} /></button>
+            </div>
+            <form onSubmit={handleExchangeSubmit} className="modal-body">
+              <p className="card-desc" style={{ marginBottom: 18 }}>
+                Enter the exact amount deducted from the source wallet and the exact amount received in the destination wallet. No rate is calculated automatically.
+              </p>
+
+              <div className="exchange-layout">
+                <div className="exchange-side">
+                  <div className="exchange-side-label">From (Deduct)</div>
+                  <div className="form-field">
+                    <span className="form-label">Currency</span>
+                    <select
+                      className="input select"
+                      value={exchangeForm.fromCurrency}
+                      onChange={(e) => setExchangeForm((prev) => ({ ...prev, fromCurrency: e.target.value as Currency }))}
+                    >
+                      {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                  <div className="form-field">
+                    <span className="form-label">Amount</span>
+                    <input
+                      className="input"
+                      type="number"
+                      step="any"
+                      min="0.01"
+                      placeholder="0.00"
+                      value={exchangeForm.fromAmount}
+                      onChange={(e) => setExchangeForm((prev) => ({ ...prev, fromAmount: e.target.value }))}
+                      required
+                    />
+                  </div>
+                  <div className="exchange-balance-hint">
+                    Available: <strong>{formatCurrency(availableCash[exchangeForm.fromCurrency], exchangeForm.fromCurrency)}</strong>
+                  </div>
+                </div>
+
+                <div className="exchange-arrow">
+                  <ArrowRightLeft size={22} />
+                </div>
+
+                <div className="exchange-side">
+                  <div className="exchange-side-label">To (Receive)</div>
+                  <div className="form-field">
+                    <span className="form-label">Currency</span>
+                    <select
+                      className="input select"
+                      value={exchangeForm.toCurrency}
+                      onChange={(e) => setExchangeForm((prev) => ({ ...prev, toCurrency: e.target.value as Currency }))}
+                    >
+                      {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                  <div className="form-field">
+                    <span className="form-label">Amount</span>
+                    <input
+                      className="input"
+                      type="number"
+                      step="any"
+                      min="0.01"
+                      placeholder="0.00"
+                      value={exchangeForm.toAmount}
+                      onChange={(e) => setExchangeForm((prev) => ({ ...prev, toAmount: e.target.value }))}
+                      required
+                    />
+                  </div>
+                  <div className="exchange-balance-hint">
+                    Available: <strong>{formatCurrency(availableCash[exchangeForm.toCurrency], exchangeForm.toCurrency)}</strong>
+                  </div>
+                </div>
+              </div>
+
+              <div className="form-grid" style={{ marginTop: 14 }}>
+                <label className="form-field">
+                  <span className="form-label">Date</span>
+                  <input
+                    className="input"
+                    type="date"
+                    value={exchangeForm.date}
+                    onChange={(e) => setExchangeForm((prev) => ({ ...prev, date: e.target.value }))}
+                    required
+                  />
+                </label>
+                <label className="form-field">
+                  <span className="form-label">Notes (optional)</span>
+                  <input
+                    className="input"
+                    type="text"
+                    placeholder="e.g. Wise transfer"
+                    value={exchangeForm.notes}
+                    onChange={(e) => setExchangeForm((prev) => ({ ...prev, notes: e.target.value }))}
+                  />
+                </label>
+              </div>
+
+              {exchangeAfterBalance >= -0.0001 && exchangeFromAmt > 0 && (
+                <div className="cash-balance-preview" style={{ marginTop: 14 }}>
+                  After exchange: <strong className={exchangeAfterBalance < 0 ? 'text-error' : ''}>{formatCurrency(exchangeAfterBalance, exchangeForm.fromCurrency)}</strong>
+                  {' → '}
+                  <strong>{formatCurrency(availableCash[exchangeForm.toCurrency] + (parseFloat(exchangeForm.toAmount) || 0), exchangeForm.toCurrency)}</strong>
+                </div>
+              )}
+
+              {exchangeValidationMessage && (
+                <div className="validation-message">{exchangeValidationMessage}</div>
+              )}
+
+              <div className="modal-actions">
+                <button type="button" className="btn btn-secondary" onClick={() => setExchangeModalOpen(false)}>Cancel</button>
+                <button type="submit" className="btn btn-primary" disabled={!canSaveExchange}>
+                  <ArrowRightLeft size={15} /> Confirm Exchange
+                </button>
               </div>
             </form>
           </div>

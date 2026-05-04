@@ -120,12 +120,11 @@ a { color: var(--brand); text-decoration: none; }
   display: flex; align-items: center; gap: 10px;
   padding: 22px 20px 28px;
 }
-.sidebar-logo {
+.app-logo {
   width: 32px; height: 32px;
-  background: var(--brand);
-  border-radius: var(--r-md);
-  display: flex; align-items: center; justify-content: center;
-  color: #fff; font-weight: 700; font-size: 15px; flex-shrink: 0;
+  display: block;
+  flex-shrink: 0;
+  filter: drop-shadow(0 8px 18px rgba(88, 86, 214, 0.18));
 }
 .sidebar-title {
   color: #fff; font-weight: 600; font-size: 15px; letter-spacing: -0.2px;
@@ -322,6 +321,42 @@ a { color: var(--brand); text-decoration: none; }
 .tx-action-badge.dividend { background: var(--amber-soft);   color: var(--amber); }
 .tx-action-badge.deposit  { background: var(--sky-soft);     color: var(--sky); }
 .tx-action-badge.withdraw { background: var(--indigo-soft);  color: var(--indigo); }
+.tx-action-badge.exchange { background: #FFF7ED; color: #C2410C; }
+
+/* ============================================
+   Exchange Layout
+   ============================================ */
+.exchange-layout {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 12px;
+  align-items: center;
+  background: var(--page-bg);
+  border: 1.5px solid var(--line-med);
+  border-radius: var(--r-lg);
+  padding: 16px;
+}
+.exchange-side { display: flex; flex-direction: column; gap: 10px; }
+.exchange-side-label {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.6px;
+  text-transform: uppercase; color: var(--ink-4);
+}
+.exchange-arrow {
+  display: flex; align-items: center; justify-content: center;
+  color: var(--brand); padding: 8px; flex-shrink: 0;
+}
+.exchange-balance-hint {
+  font-size: 12px; color: var(--ink-4);
+}
+.exchange-balance-hint strong { color: var(--ink-2); }
+
+@media (max-width: 560px) {
+  .exchange-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto auto;
+  }
+  .exchange-arrow { transform: rotate(90deg); }
+}
 
 /* ============================================
    Buttons
@@ -913,6 +948,96 @@ a { color: var(--brand); text-decoration: none; }
   .analytics-grid { grid-template-columns: 1fr; }
   .analytics-card-wide,
   .analytics-card-full { grid-column: span 1; }
+}
+
+/* ============================================
+   Auth Pages
+   ============================================ */
+.auth-page {
+  min-height: 100vh;
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px;
+  background: linear-gradient(135deg, #f8f7ff 0%, #e8e7ff 50%, #f0f9ff 100%);
+}
+
+.auth-card {
+  width: 100%; max-width: 400px;
+  background: var(--card-bg);
+  border-radius: var(--r-2xl);
+  box-shadow: var(--shadow-modal);
+  padding: 40px 32px;
+  animation: slideUp .3s var(--ease);
+}
+
+.auth-header {
+  text-align: center; margin-bottom: 28px;
+}
+.auth-header .app-logo {
+  width: 48px; height: 48px;
+  margin: 0 auto 14px;
+}
+.auth-header h1 {
+  font-size: 22px; font-weight: 700; color: var(--ink);
+  letter-spacing: -0.4px; margin-bottom: 6px;
+}
+.auth-header p {
+  font-size: 13.5px; color: var(--ink-3); line-height: 1.5;
+}
+
+.auth-form { display: flex; flex-direction: column; gap: 16px; }
+
+.auth-error {
+  padding: 10px 14px; border-radius: var(--r-md);
+  background: var(--rose-soft); border: 1px solid rgba(225,29,72,.18);
+  color: var(--rose); font-size: 13px; font-weight: 500;
+}
+
+.auth-submit {
+  width: 100%; justify-content: center;
+  margin-top: 4px; height: 44px; font-size: 14px; font-weight: 600;
+}
+
+.auth-footer {
+  text-align: center; margin-top: 20px;
+  font-size: 13.5px; color: var(--ink-3);
+}
+.auth-footer a { font-weight: 600; }
+
+/* ============================================
+   Sidebar Footer (User Info & Logout)
+   ============================================ */
+.sidebar-footer {
+  padding: 12px 10px; border-top: 1px solid rgba(255,255,255,0.08);
+  margin-top: auto;
+}
+
+.sidebar-user {
+  display: flex; align-items: center; gap: 9px;
+  padding: 8px 10px; margin-bottom: 4px;
+}
+
+.sidebar-user-avatar {
+  width: 28px; height: 28px; border-radius: 50%;
+  background: var(--brand); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 700; flex-shrink: 0;
+}
+
+.sidebar-user-name {
+  color: rgba(255,255,255,0.7); font-size: 12.5px; font-weight: 500;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.sidebar-logout {
+  border: none; background: none; width: 100%; text-align: left;
+  font-family: var(--font);
+}
+.sidebar-logout:hover { color: var(--rose) !important; background: rgba(225,29,72,0.1) !important; }
+
+.sidebar-copyright {
+  font-size: 10px; color: rgba(255,255,255,0.2);
+  text-align: center; padding: 6px 10px 2px;
+  letter-spacing: 0.3px;
 }
 
 @media (prefers-reduced-motion: reduce) {
