@@ -4,8 +4,9 @@ import { useTransactions } from '../hooks/useTransactions'
 import { formatCurrency, formatDate, todayISO } from '../lib/format'
 import { computeAssetUnits, computeCashBalances, computeCashLedger, getCashAccountName } from '../lib/calc'
 import * as Q from '../lib/queries'
+import { searchAssetCatalog, type AssetCatalogItem } from '../lib/assetCatalog'
 import { ASSET_TYPE_LABELS, type AssetType, type Currency, type Action, type Transaction } from '../types'
-import { Plus, Pencil, Trash2, X, ArrowUpCircle, Wallet, Landmark, ArrowRightLeft } from 'lucide-react'
+import { Plus, Pencil, Trash2, X, ArrowUpCircle, Wallet, Landmark, ArrowRightLeft, Search } from 'lucide-react'
 
 const ASSET_TYPES: AssetType[] = ['stock', 'crypto', 'fund', 'gold', 'bond', 'savings']
 const CURRENCIES: Currency[] = ['THB', 'USD']
@@ -113,6 +114,8 @@ export function TransactionsPage() {
   const [exchangeForm, setExchangeForm] = useState<ExchangeFormData>(emptyExchangeForm)
   const [transactionPage, setTransactionPage] = useState(1)
   const [cashPage, setCashPage] = useState(1)
+  const [catalogItems, setCatalogItems] = useState<AssetCatalogItem[]>([])
+  const [catalogLoading, setCatalogLoading] = useState(false)
 
   const allTransactions = useMemo(() => Q.getAllTransactions(db), [db, version])
   const tradableAssets = useMemo(
@@ -170,6 +173,38 @@ export function TransactionsPage() {
       setCashPage(cashPageCount)
     }
   }, [cashPage, cashPageCount])
+
+  useEffect(() => {
+    if (!modalOpen) return
+
+    let cancelled = false
+    setCatalogLoading(true)
+
+    const searchTimer = window.setTimeout(() => {
+      searchAssetCatalog({
+        query: form.asset_name,
+        assetType: form.asset_type === 'crypto' || form.asset_type === 'gold' || form.asset_type === 'bond' || form.asset_type === 'savings'
+          ? ''
+          : form.asset_type,
+        currency: form.asset_type === 'fund' ? 'THB' : '',
+        limit: 80,
+      })
+        .then((items) => {
+          if (!cancelled) setCatalogItems(items)
+        })
+        .catch(() => {
+          if (!cancelled) setCatalogItems([])
+        })
+        .finally(() => {
+          if (!cancelled) setCatalogLoading(false)
+        })
+    }, 250)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(searchTimer)
+    }
+  }, [modalOpen, form.asset_name, form.asset_type, form.currency])
 
   const openAdd = () => {
     setForm(emptyForm)
@@ -413,6 +448,15 @@ export function TransactionsPage() {
     setForm((prev) => ({
       ...prev,
       asset_name: asset.name,
+      asset_type: asset.type,
+      currency: asset.currency,
+    }))
+  }
+
+  const handleCatalogAssetSelect = (asset: AssetCatalogItem) => {
+    setForm((prev) => ({
+      ...prev,
+      asset_name: asset.symbol,
       asset_type: asset.type,
       currency: asset.currency,
     }))
@@ -713,6 +757,40 @@ export function TransactionsPage() {
                     ))}
                   </datalist>
                 </label>
+                <div className="asset-catalog-panel" style={{ gridColumn: '1 / -1' }}>
+                  <div className="asset-catalog-header">
+                    <div>
+                      <span className="form-label">Asset Catalog</span>
+                      <p className="asset-catalog-desc">US stocks, Thai stocks, and Thai mutual funds.</p>
+                    </div>
+                    <div className="asset-catalog-status">
+                      <Search size={14} />
+                      {catalogLoading ? 'Searching' : `${catalogItems.length} shown`}
+                    </div>
+                  </div>
+                  {catalogItems.length > 0 ? (
+                    <div className="asset-catalog-list">
+                      {catalogItems.map((asset) => (
+                        <button
+                          key={`${asset.source}-${asset.symbol}-${asset.type}`}
+                          type="button"
+                          className="asset-catalog-item"
+                          onClick={() => handleCatalogAssetSelect(asset)}
+                        >
+                          <span className="asset-catalog-symbol">{asset.symbol}</span>
+                          <span className="asset-catalog-name">{asset.name}</span>
+                          <span className="asset-catalog-meta">
+                            {asset.exchange ?? asset.market} · {asset.currency} · {ASSET_TYPE_LABELS[asset.type]}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="asset-catalog-empty">
+                      {catalogLoading ? 'Searching catalog...' : 'No catalog matches. You can still type a custom asset name.'}
+                    </div>
+                  )}
+                </div>
                 <label className="form-field">
                   <span className="form-label">Asset Type</span>
                   <select className="input select" value={form.asset_type} onChange={(e) => setField('asset_type', e.target.value)}>
