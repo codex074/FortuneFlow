@@ -188,6 +188,52 @@ export function upsertPriceHistory(
        AND (last_updated IS NULL OR date(last_updated) <= date(?))`,
     [price, priceDate, assetName, currency, priceDate]
   )
+  cleanupMonthlyPrices(db, assetName, currency)
+}
+
+export function cleanupMonthlyPrices(db: Database, assetName: string, currency: Currency): void {
+  const stmt = db.prepare(
+    `SELECT id, price_date FROM price_history
+     WHERE asset_name = ? AND currency = ?
+     ORDER BY price_date`
+  )
+  stmt.bind([assetName, currency])
+
+  const rows: { id: number; price_date: string }[] = []
+  while (stmt.step()) rows.push(stmt.getAsObject() as { id: number; price_date: string })
+  stmt.free()
+
+  const byMonth = new Map<string, { id: number; price_date: string }[]>()
+  for (const row of rows) {
+    const monthKey = row.price_date.slice(0, 7)
+    const group = byMonth.get(monthKey) ?? []
+    group.push(row)
+    byMonth.set(monthKey, group)
+  }
+
+  const idsToDelete: number[] = []
+  for (const [monthKey, group] of byMonth) {
+    if (group.length <= 1) continue
+    const year = parseInt(monthKey.slice(0, 4))
+    const month = parseInt(monthKey.slice(5, 7))
+    const lastDay = new Date(year, month, 0).getDate()
+    const monthEnd = `${monthKey}-${String(lastDay).padStart(2, '0')}`
+
+    let closestIdx = 0
+    let closestDist = Math.abs(new Date(group[0]!.price_date).getTime() - new Date(monthEnd).getTime())
+    for (let i = 1; i < group.length; i++) {
+      const dist = Math.abs(new Date(group[i]!.price_date).getTime() - new Date(monthEnd).getTime())
+      if (dist < closestDist) { closestDist = dist; closestIdx = i }
+    }
+
+    for (let i = 0; i < group.length; i++) {
+      if (i !== closestIdx) idsToDelete.push(group[i]!.id)
+    }
+  }
+
+  if (idsToDelete.length > 0) {
+    db.run(`DELETE FROM price_history WHERE id IN (${idsToDelete.join(',')})`)
+  }
 }
 
 export function deletePriceHistory(db: Database, id: number): void {

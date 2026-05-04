@@ -145,13 +145,13 @@ export function computeHoldings(transactions: Transaction[], assets: Asset[]): H
     } else if (tx.action === 'sell') {
       const avgCost = existing.units > 0 ? existing.totalCost / existing.units : 0
       const costBasis = avgCost * tx.units
-      // realized profit = proceeds (price × units) − cost basis − fees
       const proceeds = tx.price_per_unit * tx.units - tx.fees
       existing.realized_profit += proceeds - costBasis
       existing.units -= tx.units
       existing.totalCost -= costBasis
+    } else if (tx.action === 'dividend') {
+      existing.realized_profit += tx.total_cost
     }
-    // dividend: no effect on units or cost basis
 
     map.set(tx.asset_name, existing)
   }
@@ -356,6 +356,8 @@ export function computeRealizedProfit(transactions: Transaction[]): number {
       totalRealized += proceeds - costBasis
       existing.units -= tx.units
       existing.totalCost -= costBasis
+    } else if (tx.action === 'dividend') {
+      totalRealized += tx.total_cost
     }
 
     map.set(tx.asset_name, existing)
