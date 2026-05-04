@@ -10,9 +10,9 @@ CREATE TABLE IF NOT EXISTS transactions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   date TEXT NOT NULL,
   asset_name TEXT NOT NULL,
-  asset_type TEXT NOT NULL CHECK(asset_type IN ('stock','crypto','fund','gold','bond','savings')),
+  asset_type TEXT NOT NULL CHECK(asset_type IN ('stock','crypto','fund','gold','bond','savings','cash')),
   currency TEXT NOT NULL CHECK(currency IN ('THB','USD')),
-  action TEXT NOT NULL CHECK(action IN ('buy','sell')),
+  action TEXT NOT NULL CHECK(action IN ('buy','sell','dividend','deposit','withdraw')),
   units REAL NOT NULL,
   price_per_unit REAL NOT NULL,
   total_cost REAL NOT NULL,
@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS transactions (
 CREATE TABLE IF NOT EXISTS assets (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT UNIQUE NOT NULL,
-  type TEXT NOT NULL CHECK(type IN ('stock','crypto','fund','gold','bond','savings')),
+  type TEXT NOT NULL CHECK(type IN ('stock','crypto','fund','gold','bond','savings','cash')),
   currency TEXT NOT NULL CHECK(currency IN ('THB','USD')),
   current_price REAL,
   last_updated TEXT
@@ -36,13 +36,18 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 
 INSERT OR IGNORE INTO settings (key, value) VALUES ('exchange_rate_thb_usd', '35.0');
+INSERT OR IGNORE INTO settings (key, value) VALUES ('db_version', '2');
 `
 
 let persistTimeout: ReturnType<typeof setTimeout> | null = null
 
+function locateSqlWasm(file: string): string {
+  return new URL(file, window.location.href).href
+}
+
 export async function initDatabase(): Promise<Database> {
   const SQL = await initSqlJs({
-    locateFile: (file: string) => new URL(`/${file}`, window.location.href).href,
+    locateFile: locateSqlWasm,
   })
 
   const saved = await get<Uint8Array>(DB_KEY) ?? await get<Uint8Array>(LEGACY_DB_KEY)
@@ -50,10 +55,86 @@ export async function initDatabase(): Promise<Database> {
 
   if (!saved) {
     db.run(SCHEMA)
-    await persistDatabase(db)
+  } else {
+    runMigrations(db)
   }
 
+  await persistDatabase(db)
   return db
+}
+
+function runMigrations(db: Database): void {
+  // Migration 001: allow 'dividend' in action column
+  try {
+    const version = (() => {
+      const stmt = db.prepare("SELECT value FROM settings WHERE key='db_version'")
+      const v = stmt.step() ? parseInt((stmt.getAsObject() as { value: string }).value) : 0
+      stmt.free()
+      return v
+    })()
+
+    if (version < 1) {
+      db.run(`
+        CREATE TABLE transactions_v2 (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          date TEXT NOT NULL,
+          asset_name TEXT NOT NULL,
+          asset_type TEXT NOT NULL,
+          currency TEXT NOT NULL,
+          action TEXT NOT NULL CHECK(action IN ('buy','sell','dividend')),
+          units REAL NOT NULL,
+          price_per_unit REAL NOT NULL,
+          total_cost REAL NOT NULL,
+          fees REAL DEFAULT 0,
+          notes TEXT,
+          created_at TEXT DEFAULT (datetime('now'))
+        )
+      `)
+      db.run(`INSERT INTO transactions_v2 SELECT * FROM transactions`)
+      db.run(`DROP TABLE transactions`)
+      db.run(`ALTER TABLE transactions_v2 RENAME TO transactions`)
+      db.run(`INSERT OR REPLACE INTO settings (key,value) VALUES ('db_version','1')`)
+    }
+
+    if (version < 2) {
+      db.run(`
+        CREATE TABLE transactions_v3 (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          date TEXT NOT NULL,
+          asset_name TEXT NOT NULL,
+          asset_type TEXT NOT NULL CHECK(asset_type IN ('stock','crypto','fund','gold','bond','savings','cash')),
+          currency TEXT NOT NULL CHECK(currency IN ('THB','USD')),
+          action TEXT NOT NULL CHECK(action IN ('buy','sell','dividend','deposit','withdraw')),
+          units REAL NOT NULL,
+          price_per_unit REAL NOT NULL,
+          total_cost REAL NOT NULL,
+          fees REAL DEFAULT 0,
+          notes TEXT,
+          created_at TEXT DEFAULT (datetime('now'))
+        )
+      `)
+      db.run(`INSERT INTO transactions_v3 SELECT * FROM transactions`)
+      db.run(`DROP TABLE transactions`)
+      db.run(`ALTER TABLE transactions_v3 RENAME TO transactions`)
+
+      db.run(`
+        CREATE TABLE assets_v2 (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT UNIQUE NOT NULL,
+          type TEXT NOT NULL CHECK(type IN ('stock','crypto','fund','gold','bond','savings','cash')),
+          currency TEXT NOT NULL CHECK(currency IN ('THB','USD')),
+          current_price REAL,
+          last_updated TEXT
+        )
+      `)
+      db.run(`INSERT INTO assets_v2 SELECT * FROM assets`)
+      db.run(`DROP TABLE assets`)
+      db.run(`ALTER TABLE assets_v2 RENAME TO assets`)
+      db.run(`INSERT OR REPLACE INTO settings (key,value) VALUES ('db_version','2')`)
+    }
+  } catch {
+    // Migration already applied or table doesn't exist yet
+  }
 }
 
 export async function persistDatabase(db: Database): Promise<void> {
@@ -101,6 +182,6 @@ export async function importDatabase(
 
 export async function getSqlJs() {
   return initSqlJs({
-    locateFile: (file: string) => new URL(`/${file}`, window.location.href).href,
+    locateFile: locateSqlWasm,
   })
 }

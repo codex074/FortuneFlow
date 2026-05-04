@@ -1,6 +1,6 @@
-export type AssetType = 'stock' | 'crypto' | 'fund' | 'gold' | 'bond' | 'savings'
+export type AssetType = 'stock' | 'crypto' | 'fund' | 'gold' | 'bond' | 'savings' | 'cash'
 export type Currency = 'THB' | 'USD'
-export type Action = 'buy' | 'sell'
+export type Action = 'buy' | 'sell' | 'dividend' | 'deposit' | 'withdraw'
 
 export interface Transaction {
   id: number
@@ -35,7 +35,12 @@ export interface Holding {
   total_invested: number
   current_price: number | null
   current_value: number | null
+  unrealized_profit: number | null
+  unrealized_profit_pct: number | null
+  realized_profit: number
+  /** @deprecated use unrealized_profit */
   profit_loss: number | null
+  /** @deprecated use unrealized_profit_pct */
   profit_loss_pct: number | null
 }
 
@@ -46,6 +51,7 @@ export const ASSET_TYPE_LABELS: Record<AssetType, string> = {
   gold: 'Gold',
   bond: 'Bond',
   savings: 'Savings',
+  cash: 'Cash',
 }
 
 export const ASSET_TYPE_COLORS: Record<AssetType, string> = {
@@ -55,4 +61,5 @@ export const ASSET_TYPE_COLORS: Record<AssetType, string> = {
   gold: '#f5d75e',
   bond: '#7b3ff2',
   savings: '#1aae39',
+  cash: '#64748b',
 }

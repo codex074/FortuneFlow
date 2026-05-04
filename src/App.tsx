@@ -5,6 +5,7 @@ import { DashboardPage } from './pages/DashboardPage'
 import { TransactionsPage } from './pages/TransactionsPage'
 import { PortfolioPage } from './pages/PortfolioPage'
 import { SettingsPage } from './pages/SettingsPage'
+import { AnalyticsPage } from './pages/AnalyticsPage'
 
 export default function App() {
   return (
@@ -15,6 +16,7 @@ export default function App() {
             <Route index element={<DashboardPage />} />
             <Route path="transactions" element={<TransactionsPage />} />
             <Route path="portfolio" element={<PortfolioPage />} />
+            <Route path="analytics" element={<AnalyticsPage />} />
             <Route path="settings" element={<SettingsPage />} />
           </Route>
         </Routes>

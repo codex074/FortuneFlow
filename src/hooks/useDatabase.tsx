@@ -1,6 +1,8 @@
 import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react'
 import type { Database } from 'sql.js'
 import { initDatabase, persistDatabaseDebounced, exportDatabase, importDatabase, getSqlJs } from '../lib/db'
+import { fetchUsdThbRate } from '../lib/exchangeRate'
+import * as Q from '../lib/queries'
 
 interface DatabaseCtx {
   db: Database
@@ -18,13 +20,40 @@ export function DatabaseProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null)
   const [version, setVersion] = useState(0)
 
+  const bump = useCallback(() => setVersion((v) => v + 1), [])
+
   useEffect(() => {
     initDatabase()
       .then(setDb)
       .catch((e) => setError(String(e)))
   }, [])
 
-  const bump = useCallback(() => setVersion((v) => v + 1), [])
+  useEffect(() => {
+    if (!db || !navigator.onLine) return
+
+    let cancelled = false
+
+    fetchUsdThbRate()
+      .then((result) => {
+        if (cancelled) return
+        Q.setSetting(db, 'exchange_rate_thb_usd', String(result.rate))
+        Q.setSetting(db, 'exchange_rate_source', result.source)
+        Q.setSetting(db, 'exchange_rate_date', result.date)
+        Q.setSetting(db, 'exchange_rate_updated_at', result.fetchedAt)
+        Q.setSetting(db, 'exchange_rate_last_error', '')
+        persistDatabaseDebounced(db)
+        bump()
+      })
+      .catch((err) => {
+        if (cancelled) return
+        Q.setSetting(db, 'exchange_rate_last_error', String(err))
+        persistDatabaseDebounced(db)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [db, bump])
 
   const persist = useCallback(() => {
     if (db) {

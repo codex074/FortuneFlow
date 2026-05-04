@@ -11,6 +11,7 @@ interface TransactionInput {
   price_per_unit: number
   fees: number
   notes: string
+  total_cost_override?: number
 }
 
 export function getAllTransactions(
@@ -60,7 +61,7 @@ export function getRecentTransactions(db: Database, limit: number = 10): Transac
 }
 
 export function insertTransaction(db: Database, data: TransactionInput): void {
-  const totalCost = data.units * data.price_per_unit + data.fees
+  const totalCost = data.total_cost_override ?? (data.units * data.price_per_unit + data.fees)
 
   db.run(
     `INSERT INTO transactions (date, asset_name, asset_type, currency, action, units, price_per_unit, total_cost, fees, notes)
@@ -86,7 +87,7 @@ export function insertTransaction(db: Database, data: TransactionInput): void {
 }
 
 export function updateTransaction(db: Database, id: number, data: TransactionInput): void {
-  const totalCost = data.units * data.price_per_unit + data.fees
+  const totalCost = data.total_cost_override ?? (data.units * data.price_per_unit + data.fees)
 
   db.run(
     `UPDATE transactions SET date=?, asset_name=?, asset_type=?, currency=?, action=?, units=?, price_per_unit=?, total_cost=?, fees=?, notes=?
@@ -104,6 +105,11 @@ export function updateTransaction(db: Database, id: number, data: TransactionInp
       data.notes || null,
       id,
     ]
+  )
+
+  db.run(
+    `INSERT OR IGNORE INTO assets (name, type, currency) VALUES (?, ?, ?)`,
+    [data.asset_name, data.asset_type, data.currency]
   )
 }
 
