@@ -49,7 +49,7 @@ export function Sidebar() {
             <LogOut size={17} className="sidebar-link-icon" />
             <span>Sign Out</span>
           </button>
-          <p className="sidebar-copyright">© 2026 Codex074</p>
+          <p className="sidebar-copyright">© 2026 Codex074 v1.0.9</p>
         </div>
       </aside>
 
