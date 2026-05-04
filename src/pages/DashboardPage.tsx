@@ -33,10 +33,15 @@ export function DashboardPage() {
   const { totals, allocation, recentTx, ytdFlow, ytdTrend, quarterlyGrowth, availableYears } = useMemo(() => {
     const transactions = Q.getAllTransactions(db)
     const assets = Q.getAllAssets(db)
+    const priceHistory = Q.getAllPriceHistory(db)
     const rateStr = Q.getSetting(db, 'exchange_rate_thb_usd')
     const exchangeRate = rateStr ? parseFloat(rateStr) : 35.0
     const yearOptions = Array.from(
-      new Set([currentYear, ...transactions.map((tx) => Number(tx.date.slice(0, 4))).filter(Number.isFinite)])
+      new Set([
+        currentYear,
+        ...transactions.map((tx) => Number(tx.date.slice(0, 4))).filter(Number.isFinite),
+        ...priceHistory.map((point) => Number(point.price_date.slice(0, 4))).filter(Number.isFinite),
+      ])
     ).sort((a, b) => b - a)
     const yearTransactions = transactions.filter((tx) => Number(tx.date.slice(0, 4)) === selectedYear)
 
@@ -47,7 +52,7 @@ export function DashboardPage() {
       recentTx: yearTransactions.slice(0, 8),
       ytdFlow: computeYtdFlow(transactions, exchangeRate, new Date(), selectedYear),
       ytdTrend: computeYtdInvestmentTrend(transactions, exchangeRate, selectedYear),
-      quarterlyGrowth: computeQuarterlyPortfolioGrowth(yearTransactions, exchangeRate),
+      quarterlyGrowth: computeQuarterlyPortfolioGrowth(transactions, priceHistory, exchangeRate, new Date(), 8, selectedYear),
       availableYears: yearOptions,
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

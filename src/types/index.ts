@@ -26,6 +26,16 @@ export interface Asset {
   last_updated: string | null
 }
 
+export interface PriceHistory {
+  id: number
+  asset_name: string
+  currency: Currency
+  price_date: string
+  price: number
+  notes: string | null
+  created_at: string
+}
+
 export interface Holding {
   asset_name: string
   asset_type: AssetType

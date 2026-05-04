@@ -4,6 +4,7 @@ import { get, set } from 'idb-keyval'
 
 const DB_KEY_PREFIX = 'fortuneflow-db'
 const LEGACY_DB_KEY = 'wealth-tracker-db'
+export const CURRENT_DB_VERSION = 3
 
 function getDbKey(userId?: string): string {
   return userId ? `${DB_KEY_PREFIX}-${userId}` : DB_KEY_PREFIX
@@ -39,8 +40,19 @@ CREATE TABLE IF NOT EXISTS settings (
   value TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS price_history (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  asset_name TEXT NOT NULL,
+  currency TEXT NOT NULL CHECK(currency IN ('THB','USD')),
+  price_date TEXT NOT NULL,
+  price REAL NOT NULL,
+  notes TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  UNIQUE(asset_name, currency, price_date)
+);
+
 INSERT OR IGNORE INTO settings (key, value) VALUES ('exchange_rate_thb_usd', '35.0');
-INSERT OR IGNORE INTO settings (key, value) VALUES ('db_version', '2');
+INSERT OR IGNORE INTO settings (key, value) VALUES ('db_version', '${CURRENT_DB_VERSION}');
 `
 
 let persistTimeout: ReturnType<typeof setTimeout> | null = null
@@ -135,7 +147,34 @@ function runMigrations(db: Database): void {
       db.run(`INSERT INTO assets_v2 SELECT * FROM assets`)
       db.run(`DROP TABLE assets`)
       db.run(`ALTER TABLE assets_v2 RENAME TO assets`)
-      db.run(`INSERT OR REPLACE INTO settings (key,value) VALUES ('db_version','2')`)
+      db.run(`INSERT OR REPLACE INTO settings (key,value) VALUES ('db_version','${CURRENT_DB_VERSION}')`)
+    }
+
+    if (version < 3) {
+      db.run(`
+        CREATE TABLE IF NOT EXISTS price_history (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          asset_name TEXT NOT NULL,
+          currency TEXT NOT NULL CHECK(currency IN ('THB','USD')),
+          price_date TEXT NOT NULL,
+          price REAL NOT NULL,
+          notes TEXT,
+          created_at TEXT DEFAULT (datetime('now')),
+          UNIQUE(asset_name, currency, price_date)
+        )
+      `)
+      db.run(`
+        INSERT OR IGNORE INTO price_history (asset_name, currency, price_date, price, notes)
+        SELECT
+          name,
+          currency,
+          COALESCE(substr(last_updated, 1, 10), date('now')),
+          current_price,
+          'Imported from current price'
+        FROM assets
+        WHERE current_price IS NOT NULL
+      `)
+      db.run(`INSERT OR REPLACE INTO settings (key,value) VALUES ('db_version','${CURRENT_DB_VERSION}')`)
     }
   } catch {
     // Migration already applied or table doesn't exist yet
@@ -187,6 +226,7 @@ export async function importDatabase(
     throw new Error('Invalid database file: missing required tables')
   }
 
+  runMigrations(db)
   await persistDatabase(db)
   return db
 }

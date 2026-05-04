@@ -1,5 +1,5 @@
 import type { Database } from 'sql.js'
-import type { Transaction, Asset, AssetType, Currency, Action } from '../types'
+import type { Transaction, Asset, PriceHistory, AssetType, Currency, Action } from '../types'
 
 interface TransactionInput {
   date: string
@@ -132,6 +132,95 @@ export function updateAssetPrice(db: Database, name: string, price: number): voi
     `UPDATE assets SET current_price = ?, last_updated = datetime('now') WHERE name = ?`,
     [price, name]
   )
+}
+
+export function getPriceHistory(
+  db: Database,
+  assetName: string,
+  currency: Currency,
+  limit: number = 5
+): PriceHistory[] {
+  const stmt = db.prepare(
+    `SELECT * FROM price_history
+     WHERE asset_name = ? AND currency = ?
+     ORDER BY price_date DESC, created_at DESC
+     LIMIT ?`
+  )
+  stmt.bind([assetName, currency, limit])
+
+  const results: PriceHistory[] = []
+  while (stmt.step()) {
+    results.push(stmt.getAsObject() as unknown as PriceHistory)
+  }
+  stmt.free()
+  return results
+}
+
+export function getAllPriceHistory(db: Database): PriceHistory[] {
+  const stmt = db.prepare('SELECT * FROM price_history ORDER BY asset_name, currency, price_date')
+  const results: PriceHistory[] = []
+  while (stmt.step()) {
+    results.push(stmt.getAsObject() as unknown as PriceHistory)
+  }
+  stmt.free()
+  return results
+}
+
+export function upsertPriceHistory(
+  db: Database,
+  assetName: string,
+  currency: Currency,
+  priceDate: string,
+  price: number,
+  notes: string
+): void {
+  db.run(
+    `INSERT INTO price_history (asset_name, currency, price_date, price, notes)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(asset_name, currency, price_date)
+     DO UPDATE SET price=excluded.price, notes=excluded.notes`,
+    [assetName, currency, priceDate, price, notes || null]
+  )
+  db.run(
+    `UPDATE assets
+     SET current_price = ?, last_updated = ?
+     WHERE name = ? AND currency = ?
+       AND (last_updated IS NULL OR date(last_updated) <= date(?))`,
+    [price, priceDate, assetName, currency, priceDate]
+  )
+}
+
+export function deletePriceHistory(db: Database, id: number): void {
+  const targetStmt = db.prepare('SELECT asset_name, currency FROM price_history WHERE id = ?')
+  targetStmt.bind([id])
+  const target = targetStmt.step()
+    ? targetStmt.getAsObject() as { asset_name: string; currency: Currency }
+    : null
+  targetStmt.free()
+
+  db.run('DELETE FROM price_history WHERE id = ?', [id])
+  if (!target) return
+
+  const latestStmt = db.prepare(
+    `SELECT price, price_date FROM price_history
+     WHERE asset_name = ? AND currency = ?
+     ORDER BY price_date DESC, created_at DESC
+     LIMIT 1`
+  )
+  latestStmt.bind([target.asset_name, target.currency])
+  if (latestStmt.step()) {
+    const latest = latestStmt.getAsObject() as { price: number; price_date: string }
+    db.run(
+      `UPDATE assets SET current_price = ?, last_updated = ? WHERE name = ? AND currency = ?`,
+      [latest.price, latest.price_date, target.asset_name, target.currency]
+    )
+  } else {
+    db.run(
+      `UPDATE assets SET current_price = NULL, last_updated = NULL WHERE name = ? AND currency = ?`,
+      [target.asset_name, target.currency]
+    )
+  }
+  latestStmt.free()
 }
 
 export function getSetting(db: Database, key: string): string | null {

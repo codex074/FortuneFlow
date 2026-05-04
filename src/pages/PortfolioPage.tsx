@@ -2,9 +2,9 @@ import { useMemo, useState } from 'react'
 import { useDatabase } from '../hooks/useDatabase'
 import * as Q from '../lib/queries'
 import { allocationByType, computeHoldings, computeTotals, groupByAssetType } from '../lib/calc'
-import { formatCurrency, formatNumber, formatPct } from '../lib/format'
-import { ASSET_TYPE_LABELS, ASSET_TYPE_COLORS, type AssetType } from '../types'
-import { Check, Edit3, Wallet, TrendingUp } from 'lucide-react'
+import { formatCurrency, formatDate, formatNumber, formatPct, todayISO } from '../lib/format'
+import { ASSET_TYPE_LABELS, ASSET_TYPE_COLORS, type AssetType, type Currency } from '../types'
+import { Check, Edit3, Trash2, Wallet, TrendingUp } from 'lucide-react'
 import {
   Cell,
   Pie,
@@ -22,6 +22,8 @@ export function PortfolioPage() {
   const [selectedType, setSelectedType] = useState<AssetType | null>(null)
   const [editingPrice, setEditingPrice] = useState<string | null>(null)
   const [priceInput, setPriceInput] = useState('')
+  const [priceDateInput, setPriceDateInput] = useState(todayISO())
+  const [priceNotesInput, setPriceNotesInput] = useState('')
 
   const { holdings, totals, typeSummaries } = useMemo(() => {
     const transactions = Q.getAllTransactions(db)
@@ -87,15 +89,22 @@ export function PortfolioPage() {
   const startEditPrice = (assetName: string, currentPrice: number | null) => {
     setEditingPrice(assetName)
     setPriceInput(currentPrice !== null ? String(currentPrice) : '')
+    setPriceDateInput(todayISO())
+    setPriceNotesInput('')
   }
 
-  const savePrice = (assetName: string) => {
+  const savePrice = (assetName: string, currency: Currency) => {
     const price = parseFloat(priceInput)
-    if (!isNaN(price) && price >= 0) {
-      Q.updateAssetPrice(db, assetName, price)
+    if (!isNaN(price) && price >= 0 && priceDateInput) {
+      Q.upsertPriceHistory(db, assetName, currency, priceDateInput, price, priceNotesInput)
       persist()
     }
     setEditingPrice(null)
+  }
+
+  const deleteHistory = (id: number) => {
+    Q.deletePriceHistory(db, id)
+    persist()
   }
 
   return (
@@ -215,7 +224,12 @@ export function PortfolioPage() {
                 </div>
 
                 <div className="portfolio-holding-list">
-                  {selectedSummary.items.map((h) => (
+                  {selectedSummary.items.map((h) => {
+                    const priceHistory = h.asset_type !== 'cash'
+                      ? Q.getPriceHistory(db, h.asset_name, h.currency, 5)
+                      : []
+
+                    return (
                     <div key={h.asset_name} className="portfolio-holding-item">
                       <div className="holding-header">
                         <div>
@@ -239,17 +253,30 @@ export function PortfolioPage() {
                             {h.asset_type === 'cash' ? (
                               '1.00'
                             ) : editingPrice === h.asset_name ? (
-                              <span className="inline-edit">
+                              <span className="price-edit-panel">
                                 <input
                                   className="input input-sm"
                                   type="number"
                                   step="any"
                                   value={priceInput}
                                   onChange={(e) => setPriceInput(e.target.value)}
-                                  onKeyDown={(e) => e.key === 'Enter' && savePrice(h.asset_name)}
+                                  onKeyDown={(e) => e.key === 'Enter' && savePrice(h.asset_name, h.currency)}
                                   autoFocus
                                 />
-                                <button className="btn-icon" onClick={() => savePrice(h.asset_name)}><Check size={14} /></button>
+                                <input
+                                  className="input input-sm"
+                                  type="date"
+                                  value={priceDateInput}
+                                  onChange={(e) => setPriceDateInput(e.target.value)}
+                                />
+                                <input
+                                  className="input input-sm price-note-input"
+                                  type="text"
+                                  placeholder="Note"
+                                  value={priceNotesInput}
+                                  onChange={(e) => setPriceNotesInput(e.target.value)}
+                                />
+                                <button className="btn-icon" onClick={() => savePrice(h.asset_name, h.currency)}><Check size={14} /></button>
                               </span>
                             ) : (
                               <span className="editable" onClick={() => startEditPrice(h.asset_name, h.current_price)}>
@@ -286,8 +313,26 @@ export function PortfolioPage() {
                           </div>
                         )}
                       </div>
+                      {h.asset_type !== 'cash' && (
+                        <div className="price-history-list">
+                          {priceHistory.map((point) => (
+                            <div key={point.id} className="price-history-row">
+                              <span>{formatDate(point.price_date)}</span>
+                              <strong>{formatCurrency(point.price, h.currency)}</strong>
+                              {point.notes && <em>{point.notes}</em>}
+                              <button className="btn-icon danger" onClick={() => deleteHistory(point.id)} title="Delete price point">
+                                <Trash2 size={13} />
+                              </button>
+                            </div>
+                          ))}
+                          {priceHistory.length === 0 && (
+                            <div className="price-history-empty">No price history yet.</div>
+                          )}
+                        </div>
+                      )}
                     </div>
-                  ))}
+                    )
+                  })}
                 </div>
               </>
             ) : (

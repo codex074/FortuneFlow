@@ -1,7 +1,9 @@
 import { useEffect, useState, useRef } from 'react'
 import { useSettings } from '../hooks/useSettings'
 import { useDatabase } from '../hooks/useDatabase'
-import { Download, Upload, AlertTriangle, RefreshCw, Bell } from 'lucide-react'
+import * as Q from '../lib/queries'
+import { CURRENT_DB_VERSION } from '../lib/db'
+import { Download, Upload, AlertTriangle, RefreshCw, Bell, Database } from 'lucide-react'
 
 const LAST_BACKUP_KEY = 'fortuneflow-last-backup-at'
 const BACKUP_REMINDER_DAYS = 7
@@ -16,7 +18,7 @@ export function SettingsPage() {
     setExchangeRate,
     refreshExchangeRate,
   } = useSettings()
-  const { doExport, doImport } = useDatabase()
+  const { db, version, doExport, doImport } = useDatabase()
   const [rateInput, setRateInput] = useState(String(exchangeRate))
   const [importConfirm, setImportConfirm] = useState(false)
   const [importFile, setImportFile] = useState<File | null>(null)
@@ -103,6 +105,24 @@ export function SettingsPage() {
         day: 'numeric',
       })
     : null
+  const dbVersionValue = Q.getSetting(db, 'db_version')
+  const parsedDatabaseVersion = dbVersionValue ? parseInt(dbVersionValue, 10) : NaN
+  const databaseVersion = Number.isFinite(parsedDatabaseVersion) ? parsedDatabaseVersion : null
+  const databaseStatus = databaseVersion === null
+    ? 'Unknown version'
+    : databaseVersion === CURRENT_DB_VERSION
+    ? 'Up to date'
+    : databaseVersion < CURRENT_DB_VERSION
+      ? 'Migration needed'
+      : 'Newer than app'
+  const databaseStatusClass = databaseVersion === CURRENT_DB_VERSION ? 'ok' : 'warning'
+  const databaseStatusDetail = databaseVersion === null
+    ? 'The app could not read db_version from settings. Export a backup before troubleshooting.'
+    : databaseVersion === CURRENT_DB_VERSION
+    ? 'Your local database schema matches this version of FortuneFlow.'
+    : databaseVersion < CURRENT_DB_VERSION
+      ? 'Restart the app or reload after backup to let pending migrations run.'
+      : 'This database was created by a newer app version. Back up before making changes.'
 
   return (
     <div className="page">
@@ -111,6 +131,32 @@ export function SettingsPage() {
       </div>
 
       <div className="settings-sections">
+        <div className="card settings-card">
+          <h2 className="card-title">Database Status</h2>
+          <p className="card-desc">Schema version and migration state for the local FortuneFlow database.</p>
+          <div className={`database-status ${databaseStatusClass}`}>
+            <Database size={18} />
+            <div>
+              <strong>{databaseStatus}</strong>
+              <p>{databaseStatusDetail}</p>
+            </div>
+          </div>
+          <div className="database-version-grid">
+            <div className="database-version-item">
+              <span>Database Version</span>
+              <strong>{databaseVersion ?? 'Unknown'}</strong>
+            </div>
+            <div className="database-version-item">
+              <span>App Schema Version</span>
+              <strong>{CURRENT_DB_VERSION}</strong>
+            </div>
+            <div className="database-version-item">
+              <span>Last Refresh</span>
+              <strong>#{version}</strong>
+            </div>
+          </div>
+        </div>
+
         <div className="card settings-card">
           <h2 className="card-title">Exchange Rate</h2>
           <p className="card-desc">Auto-updates USD/THB when online. If offline, FortuneFlow keeps using the last saved rate.</p>
