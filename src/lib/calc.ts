@@ -1,5 +1,30 @@
 import type { Transaction, Asset, Holding, PriceHistory, AssetType, Currency } from '../types'
 
+export interface FifoLot {
+  units: number
+  costPerUnit: number
+}
+
+export function fifoSell(lots: FifoLot[], unitsToSell: number): number {
+  let costBasis = 0
+  let remaining = unitsToSell
+
+  while (remaining > 0.0001 && lots.length > 0) {
+    const oldest = lots[0]!
+    if (oldest.units <= remaining) {
+      costBasis += oldest.units * oldest.costPerUnit
+      remaining -= oldest.units
+      lots.shift()
+    } else {
+      costBasis += remaining * oldest.costPerUnit
+      oldest.units -= remaining
+      remaining = 0
+    }
+  }
+
+  return costBasis
+}
+
 const CASH_ACCOUNT_NAMES: Record<Currency, string> = {
   THB: 'Cash THB',
   USD: 'Cash USD',
@@ -93,13 +118,13 @@ export function computeHoldings(transactions: Transaction[], assets: Asset[]): H
   const map = new Map<string, {
     units: number
     totalCost: number
+    lots: FifoLot[]
     asset_type: AssetType
     currency: Transaction['currency']
     realized_profit: number
   }>()
   const cashBalances: Record<Currency, number> = { THB: 0, USD: 0 }
 
-  // Process in chronological order so avg cost is accurate at each sell
   const sorted = [...transactions].sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id)
 
   for (const tx of sorted) {
@@ -109,6 +134,7 @@ export function computeHoldings(transactions: Transaction[], assets: Asset[]): H
     const existing = map.get(tx.asset_name) ?? {
       units: 0,
       totalCost: 0,
+      lots: [],
       asset_type: tx.asset_type,
       currency: tx.currency,
       realized_profit: 0,
@@ -117,16 +143,14 @@ export function computeHoldings(transactions: Transaction[], assets: Asset[]): H
     if (tx.action === 'buy') {
       existing.units += tx.units
       existing.totalCost += tx.total_cost
+      existing.lots.push({ units: tx.units, costPerUnit: tx.total_cost / tx.units })
     } else if (tx.action === 'sell') {
-      const avgCost = existing.units > 0 ? existing.totalCost / existing.units : 0
-      const costBasis = avgCost * tx.units
-      // realized profit = proceeds (price × units) − cost basis − fees
+      const costBasis = fifoSell(existing.lots, tx.units)
       const proceeds = tx.price_per_unit * tx.units - tx.fees
       existing.realized_profit += proceeds - costBasis
       existing.units -= tx.units
       existing.totalCost -= costBasis
     }
-    // dividend: no effect on units or cost basis
 
     map.set(tx.asset_name, existing)
   }
@@ -188,20 +212,20 @@ export function computeHoldings(transactions: Transaction[], assets: Asset[]): H
 }
 
 export function computeRealizedProfit(transactions: Transaction[]): number {
-  const map = new Map<string, { units: number; totalCost: number }>()
+  const map = new Map<string, { units: number; totalCost: number; lots: FifoLot[] }>()
   let totalRealized = 0
 
   const sorted = [...transactions].sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id)
 
   for (const tx of sorted) {
-    const existing = map.get(tx.asset_name) ?? { units: 0, totalCost: 0 }
+    const existing = map.get(tx.asset_name) ?? { units: 0, totalCost: 0, lots: [] }
 
     if (tx.action === 'buy') {
       existing.units += tx.units
       existing.totalCost += tx.total_cost
+      existing.lots.push({ units: tx.units, costPerUnit: tx.total_cost / tx.units })
     } else if (tx.action === 'sell') {
-      const avgCost = existing.units > 0 ? existing.totalCost / existing.units : 0
-      const costBasis = avgCost * tx.units
+      const costBasis = fifoSell(existing.lots, tx.units)
       const proceeds = tx.price_per_unit * tx.units - tx.fees
       totalRealized += proceeds - costBasis
       existing.units -= tx.units
@@ -473,6 +497,7 @@ export function computeQuarterlyPortfolioGrowth(
     currency: Currency
     units: number
     totalCost: number
+    lots: FifoLot[]
   }>()
   const cashBalances: Record<Currency, number> = { THB: 0, USD: 0 }
 
@@ -497,14 +522,15 @@ export function computeQuarterlyPortfolioGrowth(
           currency: tx.currency,
           units: 0,
           totalCost: 0,
+          lots: [],
         }
 
         if (tx.action === 'buy') {
           state.units += tx.units
           state.totalCost += tx.total_cost
+          state.lots.push({ units: tx.units, costPerUnit: tx.total_cost / tx.units })
         } else if (tx.action === 'sell') {
-          const avgCost = state.units > 0 ? state.totalCost / state.units : 0
-          const costBasis = avgCost * tx.units
+          const costBasis = fifoSell(state.lots, tx.units)
           state.units -= tx.units
           state.totalCost -= costBasis
         }
