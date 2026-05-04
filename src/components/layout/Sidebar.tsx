@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, ArrowLeftRight, PieChart, BarChart3, Settings, LogOut } from 'lucide-react'
+import { LayoutDashboard, ArrowLeftRight, PieChart, BarChart3, ClipboardList, Settings, LogOut } from 'lucide-react'
 import { useAuth } from '../../hooks/useAuth'
 import { AppLogo } from '../brand/AppLogo'
 
@@ -8,6 +8,7 @@ const NAV_ITEMS = [
   { to: '/transactions', icon: ArrowLeftRight, label: 'Transactions' },
   { to: '/portfolio', icon: PieChart, label: 'Portfolio' },
   { to: '/analytics', icon: BarChart3, label: 'Analytics' },
+  { to: '/trading-record', icon: ClipboardList, label: 'Trading Record' },
   { to: '/settings', icon: Settings, label: 'Settings' },
 ]
 

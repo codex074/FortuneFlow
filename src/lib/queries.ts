@@ -1,5 +1,5 @@
 import type { Database } from 'sql.js'
-import type { Transaction, Asset, PriceHistory, AssetType, Currency, Action } from '../types'
+import type { Transaction, Asset, PriceHistory, AssetType, Currency, Action, TradingTransaction, TradingAction, TfexTrade, ForexTrade, TradeDirection } from '../types'
 
 interface TransactionInput {
   date: string
@@ -221,6 +221,142 @@ export function deletePriceHistory(db: Database, id: number): void {
     )
   }
   latestStmt.free()
+}
+
+// ── Trading Record ──────────────────────────────────────────────────
+
+interface TradingTransactionInput {
+  date: string
+  asset_name: string
+  currency: Currency
+  action: TradingAction
+  units: number
+  price_per_unit: number
+  fees: number
+  notes: string
+}
+
+export function getAllTradingTransactions(db: Database): TradingTransaction[] {
+  const stmt = db.prepare('SELECT * FROM trading_transactions ORDER BY date DESC, created_at DESC')
+  const results: TradingTransaction[] = []
+  while (stmt.step()) {
+    results.push(stmt.getAsObject() as unknown as TradingTransaction)
+  }
+  stmt.free()
+  return results
+}
+
+export function insertTradingTransaction(db: Database, data: TradingTransactionInput): void {
+  const totalCost = data.units * data.price_per_unit + data.fees
+  db.run(
+    `INSERT INTO trading_transactions (date, asset_name, currency, action, units, price_per_unit, total_cost, fees, notes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [data.date, data.asset_name, data.currency, data.action, data.units, data.price_per_unit, totalCost, data.fees, data.notes || null]
+  )
+}
+
+export function updateTradingTransaction(db: Database, id: number, data: TradingTransactionInput): void {
+  const totalCost = data.units * data.price_per_unit + data.fees
+  db.run(
+    `UPDATE trading_transactions SET date=?, asset_name=?, currency=?, action=?, units=?, price_per_unit=?, total_cost=?, fees=?, notes=?
+     WHERE id=?`,
+    [data.date, data.asset_name, data.currency, data.action, data.units, data.price_per_unit, totalCost, data.fees, data.notes || null, id]
+  )
+}
+
+export function deleteTradingTransaction(db: Database, id: number): void {
+  db.run('DELETE FROM trading_transactions WHERE id = ?', [id])
+}
+
+// ── TFEX Trades ─────────────────────────────────────────────────────
+
+interface TfexTradeInput {
+  entry_date: string
+  contract: string
+  direction: TradeDirection
+  contracts: number
+  multiplier: number
+  entry_price: number
+  exit_date: string
+  exit_price: string
+  commission: number
+  notes: string
+}
+
+export function getAllTfexTrades(db: Database): TfexTrade[] {
+  const stmt = db.prepare('SELECT * FROM tfex_trades ORDER BY entry_date DESC, created_at DESC')
+  const results: TfexTrade[] = []
+  while (stmt.step()) results.push(stmt.getAsObject() as unknown as TfexTrade)
+  stmt.free()
+  return results
+}
+
+export function insertTfexTrade(db: Database, d: TfexTradeInput): void {
+  db.run(
+    `INSERT INTO tfex_trades (entry_date, contract, direction, contracts, multiplier, entry_price, exit_date, exit_price, commission, notes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [d.entry_date, d.contract, d.direction, d.contracts, d.multiplier, d.entry_price,
+     d.exit_date || null, d.exit_price !== '' ? parseFloat(d.exit_price) : null, d.commission, d.notes || null]
+  )
+}
+
+export function updateTfexTrade(db: Database, id: number, d: TfexTradeInput): void {
+  db.run(
+    `UPDATE tfex_trades SET entry_date=?, contract=?, direction=?, contracts=?, multiplier=?, entry_price=?,
+     exit_date=?, exit_price=?, commission=?, notes=? WHERE id=?`,
+    [d.entry_date, d.contract, d.direction, d.contracts, d.multiplier, d.entry_price,
+     d.exit_date || null, d.exit_price !== '' ? parseFloat(d.exit_price) : null, d.commission, d.notes || null, id]
+  )
+}
+
+export function deleteTfexTrade(db: Database, id: number): void {
+  db.run('DELETE FROM tfex_trades WHERE id = ?', [id])
+}
+
+// ── FOREX Trades ─────────────────────────────────────────────────────
+
+interface ForexTradeInput {
+  entry_date: string
+  pair: string
+  direction: TradeDirection
+  lots: number
+  lot_size: number
+  entry_price: number
+  exit_date: string
+  exit_price: string
+  commission: number
+  currency: Currency
+  notes: string
+}
+
+export function getAllForexTrades(db: Database): ForexTrade[] {
+  const stmt = db.prepare('SELECT * FROM forex_trades ORDER BY entry_date DESC, created_at DESC')
+  const results: ForexTrade[] = []
+  while (stmt.step()) results.push(stmt.getAsObject() as unknown as ForexTrade)
+  stmt.free()
+  return results
+}
+
+export function insertForexTrade(db: Database, d: ForexTradeInput): void {
+  db.run(
+    `INSERT INTO forex_trades (entry_date, pair, direction, lots, lot_size, entry_price, exit_date, exit_price, commission, currency, notes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [d.entry_date, d.pair, d.direction, d.lots, d.lot_size, d.entry_price,
+     d.exit_date || null, d.exit_price !== '' ? parseFloat(d.exit_price) : null, d.commission, d.currency, d.notes || null]
+  )
+}
+
+export function updateForexTrade(db: Database, id: number, d: ForexTradeInput): void {
+  db.run(
+    `UPDATE forex_trades SET entry_date=?, pair=?, direction=?, lots=?, lot_size=?, entry_price=?,
+     exit_date=?, exit_price=?, commission=?, currency=?, notes=? WHERE id=?`,
+    [d.entry_date, d.pair, d.direction, d.lots, d.lot_size, d.entry_price,
+     d.exit_date || null, d.exit_price !== '' ? parseFloat(d.exit_price) : null, d.commission, d.currency, d.notes || null, id]
+  )
+}
+
+export function deleteForexTrade(db: Database, id: number): void {
+  db.run('DELETE FROM forex_trades WHERE id = ?', [id])
 }
 
 export function getSetting(db: Database, key: string): string | null {

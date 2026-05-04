@@ -1,6 +1,5 @@
 import type { Transaction, Asset, AssetType, Currency } from '../types'
 import { computeXIRR } from './xirr'
-import { fifoSell, type FifoLot } from './calc'
 
 export interface AssetMetrics {
   asset_name: string
@@ -56,7 +55,6 @@ export function computeAnalytics(
   type AssetState = {
     units: number
     totalCost: number
-    lots: FifoLot[]
     realizedProfit: number
     totalDividends: number
     firstBuyDate: string
@@ -72,7 +70,7 @@ export function computeAnalytics(
   for (const tx of sorted) {
     if (!stateMap.has(tx.asset_name)) {
       stateMap.set(tx.asset_name, {
-        units: 0, totalCost: 0, lots: [], realizedProfit: 0, totalDividends: 0,
+        units: 0, totalCost: 0, realizedProfit: 0, totalDividends: 0,
         firstBuyDate: '', currency: tx.currency, assetType: tx.asset_type, cashflows: [],
       })
     }
@@ -84,11 +82,11 @@ export function computeAnalytics(
       if (!s.firstBuyDate) s.firstBuyDate = tx.date
       s.units += tx.units
       s.totalCost += tx.total_cost
-      s.lots.push({ units: tx.units, costPerUnit: tx.total_cost / tx.units })
       s.cashflows.push({ amount: -tx.total_cost, date: txDate })
       portfolioCashflows.push({ amount: -tx.total_cost * rate, date: txDate })
     } else if (tx.action === 'sell') {
-      const costBasis = fifoSell(s.lots, tx.units)
+      const avgCost = s.units > 0 ? s.totalCost / s.units : 0
+      const costBasis = avgCost * tx.units
       const proceeds = tx.price_per_unit * tx.units - tx.fees
       s.realizedProfit += proceeds - costBasis
       s.units -= tx.units

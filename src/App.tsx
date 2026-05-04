@@ -7,6 +7,7 @@ import { TransactionsPage } from './pages/TransactionsPage'
 import { PortfolioPage } from './pages/PortfolioPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { AnalyticsPage } from './pages/AnalyticsPage'
+import { TradingRecordPage } from './pages/TradingRecordPage'
 import { LoginPage } from './pages/LoginPage'
 import { RegisterPage } from './pages/RegisterPage'
 
@@ -56,6 +57,7 @@ export default function App() {
             <Route path="transactions" element={<TransactionsPage />} />
             <Route path="portfolio" element={<PortfolioPage />} />
             <Route path="analytics" element={<AnalyticsPage />} />
+            <Route path="trading-record" element={<TradingRecordPage />} />
             <Route path="settings" element={<SettingsPage />} />
           </Route>
         </Routes>

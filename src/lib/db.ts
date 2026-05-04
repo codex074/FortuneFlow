@@ -4,7 +4,7 @@ import { get, set } from 'idb-keyval'
 
 const DB_KEY_PREFIX = 'fortuneflow-db'
 const LEGACY_DB_KEY = 'wealth-tracker-db'
-export const CURRENT_DB_VERSION = 3
+export const CURRENT_DB_VERSION = 5
 
 function getDbKey(userId?: string): string {
   return userId ? `${DB_KEY_PREFIX}-${userId}` : DB_KEY_PREFIX
@@ -51,6 +51,51 @@ CREATE TABLE IF NOT EXISTS price_history (
   UNIQUE(asset_name, currency, price_date)
 );
 
+CREATE TABLE IF NOT EXISTS trading_transactions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  date TEXT NOT NULL,
+  asset_name TEXT NOT NULL,
+  currency TEXT NOT NULL CHECK(currency IN ('THB','USD')),
+  action TEXT NOT NULL CHECK(action IN ('buy','sell')),
+  units REAL NOT NULL,
+  price_per_unit REAL NOT NULL,
+  total_cost REAL NOT NULL,
+  fees REAL DEFAULT 0,
+  notes TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS tfex_trades (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  entry_date TEXT NOT NULL,
+  contract TEXT NOT NULL,
+  direction TEXT NOT NULL CHECK(direction IN ('long','short')),
+  contracts INTEGER NOT NULL,
+  multiplier REAL NOT NULL,
+  entry_price REAL NOT NULL,
+  exit_date TEXT,
+  exit_price REAL,
+  commission REAL DEFAULT 0,
+  notes TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS forex_trades (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  entry_date TEXT NOT NULL,
+  pair TEXT NOT NULL,
+  direction TEXT NOT NULL CHECK(direction IN ('long','short')),
+  lots REAL NOT NULL,
+  lot_size REAL NOT NULL,
+  entry_price REAL NOT NULL,
+  exit_date TEXT,
+  exit_price REAL,
+  commission REAL DEFAULT 0,
+  currency TEXT NOT NULL CHECK(currency IN ('THB','USD')),
+  notes TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
 INSERT OR IGNORE INTO settings (key, value) VALUES ('exchange_rate_thb_usd', '35.0');
 INSERT OR IGNORE INTO settings (key, value) VALUES ('db_version', '${CURRENT_DB_VERSION}');
 `
@@ -76,8 +121,43 @@ export async function initDatabase(userId?: string): Promise<Database> {
     runMigrations(db)
   }
 
+  // Always ensure latest tables exist — safe because all use IF NOT EXISTS
+  ensureLatestTables(db)
+
   await persistDatabase(db, userId)
   return db
+}
+
+function ensureLatestTables(db: Database): void {
+  try {
+    db.run(`CREATE TABLE IF NOT EXISTS trading_transactions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      date TEXT NOT NULL, asset_name TEXT NOT NULL, currency TEXT NOT NULL CHECK(currency IN ('THB','USD')),
+      action TEXT NOT NULL CHECK(action IN ('buy','sell')), units REAL NOT NULL,
+      price_per_unit REAL NOT NULL, total_cost REAL NOT NULL, fees REAL DEFAULT 0,
+      notes TEXT, created_at TEXT DEFAULT (datetime('now'))
+    )`)
+    db.run(`CREATE TABLE IF NOT EXISTS tfex_trades (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      entry_date TEXT NOT NULL, contract TEXT NOT NULL,
+      direction TEXT NOT NULL CHECK(direction IN ('long','short')),
+      contracts INTEGER NOT NULL, multiplier REAL NOT NULL, entry_price REAL NOT NULL,
+      exit_date TEXT, exit_price REAL, commission REAL DEFAULT 0,
+      notes TEXT, created_at TEXT DEFAULT (datetime('now'))
+    )`)
+    db.run(`CREATE TABLE IF NOT EXISTS forex_trades (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      entry_date TEXT NOT NULL, pair TEXT NOT NULL,
+      direction TEXT NOT NULL CHECK(direction IN ('long','short')),
+      lots REAL NOT NULL, lot_size REAL NOT NULL, entry_price REAL NOT NULL,
+      exit_date TEXT, exit_price REAL, commission REAL DEFAULT 0,
+      currency TEXT NOT NULL CHECK(currency IN ('THB','USD')),
+      notes TEXT, created_at TEXT DEFAULT (datetime('now'))
+    )`)
+    db.run(`INSERT OR REPLACE INTO settings (key,value) VALUES ('db_version','${CURRENT_DB_VERSION}')`)
+  } catch {
+    // Should never fail — CREATE TABLE IF NOT EXISTS is always safe
+  }
 }
 
 function runMigrations(db: Database): void {
@@ -175,6 +255,62 @@ function runMigrations(db: Database): void {
         WHERE current_price IS NOT NULL
       `)
       db.run(`INSERT OR REPLACE INTO settings (key,value) VALUES ('db_version','${CURRENT_DB_VERSION}')`)
+    }
+
+    if (version < 4) {
+      db.run(`
+        CREATE TABLE IF NOT EXISTS trading_transactions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          date TEXT NOT NULL,
+          asset_name TEXT NOT NULL,
+          currency TEXT NOT NULL CHECK(currency IN ('THB','USD')),
+          action TEXT NOT NULL CHECK(action IN ('buy','sell')),
+          units REAL NOT NULL,
+          price_per_unit REAL NOT NULL,
+          total_cost REAL NOT NULL,
+          fees REAL DEFAULT 0,
+          notes TEXT,
+          created_at TEXT DEFAULT (datetime('now'))
+        )
+      `)
+      db.run(`INSERT OR REPLACE INTO settings (key,value) VALUES ('db_version','4')`)
+    }
+
+    if (version < 5) {
+      db.run(`
+        CREATE TABLE IF NOT EXISTS tfex_trades (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          entry_date TEXT NOT NULL,
+          contract TEXT NOT NULL,
+          direction TEXT NOT NULL CHECK(direction IN ('long','short')),
+          contracts INTEGER NOT NULL,
+          multiplier REAL NOT NULL,
+          entry_price REAL NOT NULL,
+          exit_date TEXT,
+          exit_price REAL,
+          commission REAL DEFAULT 0,
+          notes TEXT,
+          created_at TEXT DEFAULT (datetime('now'))
+        )
+      `)
+      db.run(`
+        CREATE TABLE IF NOT EXISTS forex_trades (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          entry_date TEXT NOT NULL,
+          pair TEXT NOT NULL,
+          direction TEXT NOT NULL CHECK(direction IN ('long','short')),
+          lots REAL NOT NULL,
+          lot_size REAL NOT NULL,
+          entry_price REAL NOT NULL,
+          exit_date TEXT,
+          exit_price REAL,
+          commission REAL DEFAULT 0,
+          currency TEXT NOT NULL CHECK(currency IN ('THB','USD')),
+          notes TEXT,
+          created_at TEXT DEFAULT (datetime('now'))
+        )
+      `)
+      db.run(`INSERT OR REPLACE INTO settings (key,value) VALUES ('db_version','5')`)
     }
   } catch {
     // Migration already applied or table doesn't exist yet

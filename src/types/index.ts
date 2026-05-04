@@ -1,6 +1,53 @@
 export type AssetType = 'stock' | 'crypto' | 'fund' | 'gold' | 'bond' | 'savings' | 'cash'
 export type Currency = 'THB' | 'USD'
 export type Action = 'buy' | 'sell' | 'dividend' | 'deposit' | 'withdraw'
+export type TradingAction = 'buy' | 'sell'
+export type TradeDirection = 'long' | 'short'
+
+export interface TradingTransaction {
+  id: number
+  date: string
+  asset_name: string
+  currency: Currency
+  action: TradingAction
+  units: number
+  price_per_unit: number
+  total_cost: number
+  fees: number
+  notes: string | null
+  created_at: string
+}
+
+export interface TfexTrade {
+  id: number
+  entry_date: string
+  contract: string
+  direction: TradeDirection
+  contracts: number
+  multiplier: number
+  entry_price: number
+  exit_date: string | null
+  exit_price: number | null
+  commission: number
+  notes: string | null
+  created_at: string
+}
+
+export interface ForexTrade {
+  id: number
+  entry_date: string
+  pair: string
+  direction: TradeDirection
+  lots: number
+  lot_size: number
+  entry_price: number
+  exit_date: string | null
+  exit_price: number | null
+  commission: number
+  currency: Currency
+  notes: string | null
+  created_at: string
+}
 
 export interface Transaction {
   id: number
