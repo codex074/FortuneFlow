@@ -4,7 +4,6 @@ import { DatabaseProvider } from './hooks/useDatabase'
 import { Layout } from './components/layout/Layout'
 import { DashboardPage } from './pages/DashboardPage'
 import { TransactionsPage } from './pages/TransactionsPage'
-import { PortfolioPage } from './pages/PortfolioPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { AnalyticsPage } from './pages/AnalyticsPage'
 import { TradingRecordPage } from './pages/TradingRecordPage'
@@ -55,8 +54,7 @@ export default function App() {
           <Route element={<RequireAuth><Layout /></RequireAuth>}>
             <Route index element={<DashboardPage />} />
             <Route path="transactions" element={<TransactionsPage />} />
-            <Route path="portfolio" element={<PortfolioPage />} />
-            <Route path="analytics" element={<AnalyticsPage />} />
+<Route path="analytics" element={<AnalyticsPage />} />
             <Route path="trading-record" element={<TradingRecordPage />} />
             <Route path="settings" element={<SettingsPage />} />
           </Route>

@@ -379,6 +379,7 @@ export function groupByAssetType(holdings: Holding[]): Map<AssetType, Holding[]>
 export function computeTotals(holdings: Holding[], exchangeRate: number) {
   let totalInvestedTHB = 0
   let totalValueTHB = 0
+  let investedWithPricesTHB = 0
   let unrealizedProfitTHB = 0
   let realizedProfitTHB = 0
   let hasAllPrices = true
@@ -389,28 +390,32 @@ export function computeTotals(holdings: Holding[], exchangeRate: number) {
     realizedProfitTHB += h.realized_profit * rate
     if (h.current_value !== null) {
       totalValueTHB += h.current_value * rate
+      investedWithPricesTHB += h.total_invested * rate
       unrealizedProfitTHB += (h.unrealized_profit ?? 0) * rate
     } else {
       hasAllPrices = false
     }
   }
 
+  const pct = investedWithPricesTHB > 0 ? (unrealizedProfitTHB / investedWithPricesTHB) * 100 : null
+
   return {
     totalInvestedTHB,
-    totalValueTHB: hasAllPrices ? totalValueTHB : null,
+    totalValueTHB: totalValueTHB > 0 ? totalValueTHB : null,
     totalInvestedUSD: totalInvestedTHB / exchangeRate,
-    totalValueUSD: hasAllPrices ? totalValueTHB / exchangeRate : null,
+    totalValueUSD: totalValueTHB > 0 ? totalValueTHB / exchangeRate : null,
+    hasAllPrices,
     // unrealized
-    unrealizedProfitTHB: hasAllPrices ? unrealizedProfitTHB : null,
-    unrealizedProfitUSD: hasAllPrices ? unrealizedProfitTHB / exchangeRate : null,
-    unrealizedProfitPct: hasAllPrices && totalInvestedTHB > 0 ? (unrealizedProfitTHB / totalInvestedTHB) * 100 : null,
+    unrealizedProfitTHB: investedWithPricesTHB > 0 ? unrealizedProfitTHB : null,
+    unrealizedProfitUSD: investedWithPricesTHB > 0 ? unrealizedProfitTHB / exchangeRate : null,
+    unrealizedProfitPct: pct,
     // realized
     realizedProfitTHB,
     realizedProfitUSD: realizedProfitTHB / exchangeRate,
     // combined (for backward compat)
-    profitLossTHB: hasAllPrices ? unrealizedProfitTHB : null,
-    profitLossUSD: hasAllPrices ? unrealizedProfitTHB / exchangeRate : null,
-    profitLossPct: hasAllPrices && totalInvestedTHB > 0 ? (unrealizedProfitTHB / totalInvestedTHB) * 100 : null,
+    profitLossTHB: investedWithPricesTHB > 0 ? unrealizedProfitTHB : null,
+    profitLossUSD: investedWithPricesTHB > 0 ? unrealizedProfitTHB / exchangeRate : null,
+    profitLossPct: pct,
   }
 }
 
@@ -506,27 +511,33 @@ export function computeYtdInvestmentTrend(
     cumulativeTHB: 0,
   }))
 
+  let baseTHB = 0
+
   for (const tx of transactions) {
     const txYear = Number(tx.date.slice(0, 4))
     const txMonth = Number(tx.date.slice(5, 7)) - 1
-    if (txYear !== year || txMonth < 0 || txMonth > lastMonth) continue
-
     if (tx.action === 'dividend') continue
     if (cashLedger && tx.action !== 'deposit' && tx.action !== 'withdraw') continue
-    const valueTHB = transactionValueTHB(tx, exchangeRate)
-    const point = monthly[txMonth]
-    if (!point) continue
 
-    if (tx.action === 'buy' || tx.action === 'deposit') {
-      point.investedTHB += valueTHB
-      point.netFlowTHB += valueTHB
-    } else if (tx.action === 'sell' || tx.action === 'withdraw') {
-      point.soldTHB += valueTHB
-      point.netFlowTHB -= valueTHB
+    const valueTHB = transactionValueTHB(tx, exchangeRate)
+    const isInflow = tx.action === 'buy' || tx.action === 'deposit'
+
+    if (txYear < year) {
+      baseTHB += isInflow ? valueTHB : -valueTHB
+    } else if (txYear === year && txMonth >= 0 && txMonth <= lastMonth) {
+      const point = monthly[txMonth]
+      if (!point) continue
+      if (isInflow) {
+        point.investedTHB += valueTHB
+        point.netFlowTHB += valueTHB
+      } else if (tx.action === 'sell' || tx.action === 'withdraw') {
+        point.soldTHB += valueTHB
+        point.netFlowTHB -= valueTHB
+      }
     }
   }
 
-  let cumulativeTHB = 0
+  let cumulativeTHB = baseTHB
   return monthly.map((point) => {
     cumulativeTHB += point.netFlowTHB
     return { ...point, cumulativeTHB }

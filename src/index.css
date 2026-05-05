@@ -252,6 +252,7 @@ a { color: var(--brand); text-decoration: none; }
 }
 .metric-value.success { color: var(--success); }
 .metric-value.error   { color: var(--error); }
+.metric-partial { font-size: 9px; font-weight: 600; color: var(--ink-4); letter-spacing: 0.3px; opacity: .8; }
 
 /* ============================================
    Cards
@@ -277,6 +278,7 @@ a { color: var(--brand); text-decoration: none; }
   display: grid;
   grid-template-columns: repeat(2, minmax(0,1fr));
   gap: 16px;
+  margin-bottom: 16px;
 }
 .dashboard-card-wide { grid-column: 1 / -1; }
 
@@ -680,8 +682,9 @@ a { color: var(--brand); text-decoration: none; }
 
 .portfolio-dashboard {
   display: grid;
-  grid-template-columns: minmax(400px,.9fr) minmax(0,1.1fr);
-  gap: 16px; align-items: start;
+  grid-template-columns: minmax(340px,1fr) minmax(0,1fr);
+  gap: 16px; align-items: stretch;
+  margin-bottom: 16px;
 }
 
 .portfolio-card-header {
@@ -698,7 +701,7 @@ a { color: var(--brand); text-decoration: none; }
   color: var(--ink-2); font-size: 13px; font-weight: 600; white-space: nowrap;
 }
 
-.portfolio-chart-card { position: sticky; top: 22px; }
+.portfolio-chart-card { }
 
 .portfolio-chart-shell { position: relative; width: 100%; height: 300px; }
 .portfolio-chart-center {
@@ -735,7 +738,7 @@ a { color: var(--brand); text-decoration: none; }
 .portfolio-type-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .portfolio-type-meta { margin-left: auto; color: var(--ink-4); font-size: 11.5px; }
 
-.portfolio-detail-panel { min-height: 460px; }
+.portfolio-detail-panel { }
 
 .portfolio-detail-hero {
   display: flex; align-items: flex-start; justify-content: space-between;
@@ -771,11 +774,24 @@ a { color: var(--brand); text-decoration: none; }
 
 .portfolio-holding-list { display: flex; flex-direction: column; gap: 10px; }
 .portfolio-holding-item {
-  padding: 14px; border: 1px solid var(--line); border-radius: var(--r-md);
+  padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-md);
   background: var(--card-bg); transition: border-color .15s, box-shadow .15s;
 }
 .portfolio-holding-item:hover { border-color: var(--line-med); box-shadow: var(--shadow-card); }
-.portfolio-holding-sub { margin-top: 2px; color: var(--ink-4); font-size: 11.5px; font-weight: 500; }
+.portfolio-holding-sub { color: var(--ink-4); font-size: 11px; font-weight: 500; }
+
+.holding-row { display: flex; align-items: center; gap: 14px; }
+.holding-identity { display: flex; flex-direction: column; min-width: 100px; flex-shrink: 0; }
+.holding-stats-inline { display: flex; gap: 14px; flex: 1; flex-wrap: wrap; align-items: flex-start; }
+
+.price-history-details { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+.price-history-details > summary {
+  cursor: pointer; font-size: 11.5px; color: var(--ink-4); font-weight: 500;
+  list-style: none; user-select: none;
+}
+.price-history-details > summary::-webkit-details-marker { display: none; }
+.price-history-details > summary::before { content: '▸ '; }
+.price-history-details[open] > summary::before { content: '▾ '; }
 
 .portfolio-select-empty {
   min-height: 400px; display: flex; flex-direction: column;

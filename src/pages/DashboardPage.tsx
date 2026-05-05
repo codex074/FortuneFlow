@@ -8,9 +8,10 @@ import {
   computeYtdFlow,
   computeYtdInvestmentTrend,
   computeQuarterlyPortfolioGrowth,
+  groupByAssetType,
 } from '../lib/calc'
-import { formatCurrency, formatPct, formatDate } from '../lib/format'
-import { ASSET_TYPE_LABELS, ASSET_TYPE_COLORS, type AssetType } from '../types'
+import { formatCurrency, formatPct, formatDate, formatNumber, todayISO } from '../lib/format'
+import { ASSET_TYPE_LABELS, ASSET_TYPE_COLORS, type AssetType, type Currency } from '../types'
 import {
   Area,
   AreaChart,
@@ -23,14 +24,34 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { CalendarDays, TrendingUp, TrendingDown, Wallet, DollarSign, CheckCircle } from 'lucide-react'
+import {
+  CalendarDays,
+  TrendingUp,
+  TrendingDown,
+  Wallet,
+  DollarSign,
+  CheckCircle,
+  Check,
+  Edit3,
+  Trash2,
+  X,
+} from 'lucide-react'
+
+function formatSharePct(value: number): string {
+  return `${value.toFixed(1)}%`
+}
 
 export function DashboardPage() {
-  const { db, version } = useDatabase()
+  const { db, version, persist } = useDatabase()
   const currentYear = new Date().getFullYear()
   const [selectedYear, setSelectedYear] = useState(currentYear)
+  const [selectedType, setSelectedType] = useState<AssetType | null>(null)
+  const [editingPrice, setEditingPrice] = useState<string | null>(null)
+  const [priceInput, setPriceInput] = useState('')
+  const [priceDateInput, setPriceDateInput] = useState(todayISO())
+  const [priceNotesInput, setPriceNotesInput] = useState('')
 
-  const { totals, allocation, recentTx, ytdFlow, ytdTrend, quarterlyGrowth, availableYears } = useMemo(() => {
+  const { recentTx, ytdFlow, ytdTrend, quarterlyGrowth, availableYears } = useMemo(() => {
     const transactions = Q.getAllTransactions(db)
     const assets = Q.getAllAssets(db)
     const priceHistory = Q.getAllPriceHistory(db)
@@ -58,8 +79,90 @@ export function DashboardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [db, version, selectedYear, currentYear])
 
-  const unrealizedPositive = (totals.unrealizedProfitTHB ?? 0) >= 0
-  const realizedPositive = totals.realizedProfitTHB >= 0
+  const { portfolioHoldings, portfolioTotals, typeSummaries } = useMemo(() => {
+    const transactions = Q.getAllTransactions(db)
+    const assets = Q.getAllAssets(db)
+    const rateStr = Q.getSetting(db, 'exchange_rate_thb_usd')
+    const exchangeRate = rateStr ? parseFloat(rateStr) : 35.0
+    const h = computeHoldings(transactions, assets)
+    const grouped = groupByAssetType(h)
+    const portfolioAlloc = allocationByType(h, exchangeRate)
+    const totalAllocationTHB = portfolioAlloc.reduce((sum, item) => sum + item.value, 0)
+
+    const summaries = portfolioAlloc.map((item) => {
+      const type = item.type as AssetType
+      const items = grouped.get(type) ?? []
+      const investedTHB = items.reduce((sum, holding) => {
+        const rate = holding.currency === 'USD' ? exchangeRate : 1
+        return sum + holding.total_invested * rate
+      }, 0)
+      const unrealizedProfitTHB = items.reduce((sum, holding) => {
+        const rate = holding.currency === 'USD' ? exchangeRate : 1
+        return sum + (holding.unrealized_profit ?? 0) * rate
+      }, 0)
+      const realizedProfitTHB = items.reduce((sum, holding) => {
+        const rate = holding.currency === 'USD' ? exchangeRate : 1
+        return sum + holding.realized_profit * rate
+      }, 0)
+      const hasAllPrices = items.every((holding) => holding.current_value !== null)
+
+      return {
+        type,
+        label: ASSET_TYPE_LABELS[type],
+        valueTHB: item.value,
+        investedTHB,
+        unrealizedProfitTHB: hasAllPrices ? unrealizedProfitTHB : null,
+        realizedProfitTHB,
+        percentage: totalAllocationTHB > 0 ? (item.value / totalAllocationTHB) * 100 : 0,
+        items,
+      }
+    })
+
+    return {
+      portfolioHoldings: h,
+      portfolioTotals: computeTotals(h, exchangeRate),
+      typeSummaries: summaries,
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [db, version])
+
+  const selectedSummary = selectedType
+    ? typeSummaries.find((summary) => summary.type === selectedType) ?? null
+    : null
+
+  const handleTypeSelect = (type: AssetType) => {
+    setSelectedType(type)
+    setEditingPrice(null)
+  }
+
+  const handlePieClick = (entry: unknown) => {
+    const type = (entry as { type?: AssetType }).type
+    if (type) handleTypeSelect(type)
+  }
+
+  const startEditPrice = (assetName: string, currentPrice: number | null) => {
+    setEditingPrice(assetName)
+    setPriceInput(currentPrice !== null ? String(currentPrice) : '')
+    setPriceDateInput(todayISO())
+    setPriceNotesInput('')
+  }
+
+  const savePrice = (assetName: string, currency: Currency) => {
+    const price = parseFloat(priceInput)
+    if (!isNaN(price) && price >= 0 && priceDateInput) {
+      Q.upsertPriceHistory(db, assetName, currency, priceDateInput, price, priceNotesInput)
+      persist()
+    }
+    setEditingPrice(null)
+  }
+
+  const deleteHistory = (id: number) => {
+    Q.deletePriceHistory(db, id)
+    persist()
+  }
+
+  const unrealizedPositive = (portfolioTotals.unrealizedProfitTHB ?? 0) >= 0
+  const realizedPositive = portfolioTotals.realizedProfitTHB >= 0
   const ytdPositive = ytdFlow.netInvestedTHB >= 0
 
   return (
@@ -82,22 +185,24 @@ export function DashboardPage() {
           <div className="metric-icon-wrap violet"><Wallet size={18} /></div>
           <div className="metric-body">
             <div className="metric-label">Total Invested (THB)</div>
-            <div className="metric-value">{formatCurrency(totals.totalInvestedTHB, 'THB')}</div>
+            <div className="metric-value">{formatCurrency(portfolioTotals.totalInvestedTHB, 'THB')}</div>
           </div>
         </div>
         <div className="metric-card">
           <div className="metric-icon-wrap sky"><DollarSign size={18} /></div>
           <div className="metric-body">
             <div className="metric-label">Total Invested (USD)</div>
-            <div className="metric-value">{formatCurrency(totals.totalInvestedUSD, 'USD')}</div>
+            <div className="metric-value">{formatCurrency(portfolioTotals.totalInvestedUSD, 'USD')}</div>
           </div>
         </div>
         <div className="metric-card">
           <div className="metric-icon-wrap teal"><Wallet size={18} /></div>
           <div className="metric-body">
-            <div className="metric-label">Current Value (THB)</div>
+            <div className="metric-label">
+              Current Value (THB){!portfolioTotals.hasAllPrices && portfolioTotals.totalValueTHB !== null && <span className="metric-partial"> partial</span>}
+            </div>
             <div className="metric-value">
-              {totals.totalValueTHB !== null ? formatCurrency(totals.totalValueTHB, 'THB') : '—'}
+              {portfolioTotals.totalValueTHB !== null ? formatCurrency(portfolioTotals.totalValueTHB, 'THB') : '—'}
             </div>
           </div>
         </div>
@@ -106,10 +211,12 @@ export function DashboardPage() {
             {unrealizedPositive ? <TrendingUp size={18} /> : <TrendingDown size={18} />}
           </div>
           <div className="metric-body">
-            <div className="metric-label">Unrealized P&amp;L</div>
+            <div className="metric-label">
+              Unrealized P&amp;L{!portfolioTotals.hasAllPrices && portfolioTotals.unrealizedProfitTHB !== null && <span className="metric-partial"> partial</span>}
+            </div>
             <div className={`metric-value ${unrealizedPositive ? 'success' : 'error'}`}>
-              {totals.unrealizedProfitTHB !== null
-                ? `${formatCurrency(totals.unrealizedProfitTHB, 'THB')} (${formatPct(totals.unrealizedProfitPct ?? 0)})`
+              {portfolioTotals.unrealizedProfitTHB !== null
+                ? `${formatCurrency(portfolioTotals.unrealizedProfitTHB, 'THB')} (${formatPct(portfolioTotals.unrealizedProfitPct ?? 0)})`
                 : '—'}
             </div>
           </div>
@@ -121,7 +228,7 @@ export function DashboardPage() {
           <div className="metric-body">
             <div className="metric-label">Realized P&amp;L</div>
             <div className={`metric-value ${realizedPositive ? 'success' : 'error'}`}>
-              {formatCurrency(totals.realizedProfitTHB, 'THB')}
+              {formatCurrency(portfolioTotals.realizedProfitTHB, 'THB')}
             </div>
           </div>
         </div>
@@ -138,9 +245,9 @@ export function DashboardPage() {
       </div>
 
       <div className="dashboard-grid">
-        <div className="card dashboard-card-wide">
+        <div className="card">
           <h2 className="card-title">{selectedYear} YTD Net Investment</h2>
-          {ytdTrend.some((point) => point.investedTHB !== 0 || point.soldTHB !== 0) ? (
+          {ytdTrend.some((point) => point.cumulativeTHB !== 0) ? (
             <div className="growth-chart">
               <ResponsiveContainer width="100%" height={300}>
                 <AreaChart data={ytdTrend} margin={{ top: 8, right: 12, left: 12, bottom: 0 }}>
@@ -191,7 +298,7 @@ export function DashboardPage() {
           )}
         </div>
 
-        <div className="card dashboard-card-wide">
+        <div className="card">
           <h2 className="card-title">{selectedYear} Quarterly Portfolio Growth</h2>
           {quarterlyGrowth.length > 0 && quarterlyGrowth.some((point) => point.valueTHB !== 0 || point.netFlowTHB !== 0) ? (
             <div className="growth-chart">
@@ -244,79 +351,278 @@ export function DashboardPage() {
           )}
         </div>
 
-        <div className="card">
-          <h2 className="card-title">Asset Allocation</h2>
-          {allocation.length > 0 ? (
-            <div className="chart-container">
-              <ResponsiveContainer width="100%" height={280}>
+      </div>
+
+      {portfolioHoldings.length === 0 ? (
+        <div className="empty-state card">
+          <p>No holdings yet. Add transactions to see your portfolio.</p>
+        </div>
+      ) : (
+        <>
+        <div className="portfolio-dashboard">
+          <div className="card portfolio-chart-card">
+            <div className="portfolio-card-header">
+              <div>
+                <h2 className="card-title">Allocation by Type</h2>
+                <p className="card-desc">Portfolio value split across asset categories.</p>
+              </div>
+              <div className="portfolio-total-pill">
+                <Wallet size={16} />
+                <span>{formatCurrency(portfolioTotals.totalInvestedTHB, 'THB')}</span>
+              </div>
+            </div>
+
+            <div className="portfolio-chart-shell">
+              <ResponsiveContainer width="100%" height={320}>
                 <PieChart>
                   <Pie
-                    data={allocation}
-                    dataKey="value"
-                    nameKey="type"
+                    data={typeSummaries}
+                    dataKey="valueTHB"
+                    nameKey="label"
                     cx="50%"
                     cy="50%"
-                    innerRadius={60}
-                    outerRadius={110}
-                    paddingAngle={2}
+                    innerRadius={82}
+                    outerRadius={126}
+                    paddingAngle={3}
+                    onClick={handlePieClick}
                   >
-                    {allocation.map((entry) => (
-                      <Cell key={entry.type} fill={ASSET_TYPE_COLORS[entry.type as AssetType]} />
+                    {typeSummaries.map((summary) => (
+                      <Cell
+                        key={summary.type}
+                        fill={ASSET_TYPE_COLORS[summary.type]}
+                        stroke={selectedType === summary.type ? '#0a1530' : '#ffffff'}
+                        strokeWidth={selectedType === summary.type ? 4 : 2}
+                        style={{ cursor: 'pointer' }}
+                      />
                     ))}
                   </Pie>
                   <Tooltip
-                    formatter={(value: number) => formatCurrency(value, 'THB')}
-                    labelFormatter={(label: string) => ASSET_TYPE_LABELS[label as AssetType] ?? label}
+                    formatter={(value: number | string) => formatCurrency(Number(value), 'THB')}
+                    labelFormatter={(label: string) => label}
                   />
                 </PieChart>
               </ResponsiveContainer>
-              <div className="chart-legend">
-                {allocation.map((entry) => (
-                  <div key={entry.type} className="legend-item">
-                    <span className="legend-dot" style={{ backgroundColor: ASSET_TYPE_COLORS[entry.type as AssetType] }} />
-                    <span>{ASSET_TYPE_LABELS[entry.type as AssetType]}</span>
+              <div className="portfolio-chart-center">
+                <span>Total Value</span>
+                <strong>
+                  {portfolioTotals.totalValueTHB !== null
+                    ? formatCurrency(portfolioTotals.totalValueTHB, 'THB')
+                    : formatCurrency(portfolioTotals.totalInvestedTHB, 'THB')}
+                </strong>
+              </div>
+            </div>
+
+            <div className="portfolio-type-grid">
+              {typeSummaries.map((summary) => (
+                <button
+                  key={summary.type}
+                  className={`portfolio-type-button ${selectedType === summary.type ? 'active' : ''}`}
+                  onClick={() => handleTypeSelect(summary.type)}
+                >
+                  <span className="legend-dot" style={{ backgroundColor: ASSET_TYPE_COLORS[summary.type] }} />
+                  <span className="portfolio-type-name">{summary.label}</span>
+                  <span className="portfolio-type-meta">{formatSharePct(summary.percentage)}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="card">
+            <h2 className="card-title">Recent Transactions</h2>
+            {recentTx.length > 0 ? (
+              <div className="recent-tx-list">
+                {recentTx.map((tx) => (
+                  <div key={tx.id} className="recent-tx-row">
+                    <div className="recent-tx-left">
+                      <span className={`tx-action-badge ${tx.action}`}>{tx.action.toUpperCase()}</span>
+                      <div>
+                        <div className="recent-tx-name">{tx.asset_name}</div>
+                        <div className="recent-tx-date">{formatDate(tx.date)}</div>
+                      </div>
+                    </div>
+                    <div className="recent-tx-right">
+                      <div className="recent-tx-amount">{formatCurrency(tx.total_cost, tx.currency)}</div>
+                      <div className="recent-tx-units">
+                        {tx.action === 'deposit' || tx.action === 'withdraw' || tx.action === 'dividend'
+                          ? ASSET_TYPE_LABELS[tx.asset_type]
+                          : `${tx.units} units`}
+                      </div>
+                    </div>
                   </div>
                 ))}
               </div>
-            </div>
-          ) : (
-            <div className="empty-state">
-              <p>No investments yet. Add your first transaction to see allocation.</p>
-            </div>
-          )}
+            ) : (
+              <div className="empty-state">
+                <p>No transactions yet.</p>
+              </div>
+            )}
+          </div>
+
         </div>
 
-        <div className="card">
-          <h2 className="card-title">Recent Transactions</h2>
-          {recentTx.length > 0 ? (
-            <div className="recent-tx-list">
-              {recentTx.map((tx) => (
-                <div key={tx.id} className="recent-tx-row">
-                  <div className="recent-tx-left">
-                    <span className={`tx-action-badge ${tx.action}`}>{tx.action.toUpperCase()}</span>
-                    <div>
-                      <div className="recent-tx-name">{tx.asset_name}</div>
-                      <div className="recent-tx-date">{formatDate(tx.date)}</div>
-                    </div>
-                  </div>
-                  <div className="recent-tx-right">
-                    <div className="recent-tx-amount">{formatCurrency(tx.total_cost, tx.currency)}</div>
-                    <div className="recent-tx-units">
-                      {tx.action === 'deposit' || tx.action === 'withdraw' || tx.action === 'dividend'
-                        ? ASSET_TYPE_LABELS[tx.asset_type]
-                        : `${tx.units} units`}
-                    </div>
-                  </div>
+        <div className="card portfolio-detail-panel">
+          {selectedSummary ? (
+            <>
+              <div className="portfolio-detail-hero">
+                <div>
+                  <span className="portfolio-detail-kicker">Selected Type</span>
+                  <h2 className="portfolio-detail-title">
+                    <span className="group-dot" style={{ backgroundColor: ASSET_TYPE_COLORS[selectedSummary.type] }} />
+                    {selectedSummary.label}
+                  </h2>
                 </div>
-              ))}
-            </div>
+                <div className="portfolio-detail-percent">{formatSharePct(selectedSummary.percentage)}</div>
+              </div>
+
+              <div className="portfolio-metric-grid">
+                <div className="portfolio-metric">
+                  <span className="stat-label">Assets</span>
+                  <strong>{selectedSummary.items.length}</strong>
+                </div>
+                <div className="portfolio-metric">
+                  <span className="stat-label">Value</span>
+                  <strong>{formatCurrency(selectedSummary.valueTHB, 'THB')}</strong>
+                </div>
+                <div className="portfolio-metric">
+                  <span className="stat-label">Unrealized P&amp;L</span>
+                  <strong className={selectedSummary.unrealizedProfitTHB !== null ? (selectedSummary.unrealizedProfitTHB < 0 ? 'text-error' : 'text-success') : ''}>
+                    {selectedSummary.unrealizedProfitTHB !== null ? formatCurrency(selectedSummary.unrealizedProfitTHB, 'THB') : '--'}
+                  </strong>
+                </div>
+                <div className="portfolio-metric">
+                  <span className="stat-label">Realized P&amp;L</span>
+                  <strong className={selectedSummary.realizedProfitTHB < 0 ? 'text-error' : 'text-success'}>
+                    {formatCurrency(selectedSummary.realizedProfitTHB, 'THB')}
+                  </strong>
+                </div>
+              </div>
+
+              <div className="portfolio-holding-list">
+                {selectedSummary.items.map((h) => {
+                  const priceHistory = h.asset_type !== 'cash'
+                    ? Q.getPriceHistory(db, h.asset_name, h.currency, 5)
+                    : []
+
+                  return (
+                    <div key={h.asset_name} className="portfolio-holding-item">
+                      <div className="holding-row">
+                        <div className="holding-identity">
+                          <span className="holding-name">{h.asset_name}</span>
+                          <span className="portfolio-holding-sub">
+                            {h.asset_type === 'cash' ? 'Cash balance' : `${formatNumber(h.units, 4)} units`}
+                          </span>
+                        </div>
+                        <div className="holding-stats-inline">
+                          <div className="holding-stat">
+                            <span className="stat-label">{h.asset_type === 'cash' ? 'Balance' : 'Avg Cost'}</span>
+                            <span className="stat-value">
+                              {h.asset_type === 'cash' ? formatCurrency(h.current_value ?? 0, h.currency) : formatCurrency(h.avg_cost, h.currency)}
+                            </span>
+                          </div>
+                          <div className="holding-stat">
+                            <span className="stat-label">{h.asset_type === 'cash' ? 'Rate' : 'Price'}</span>
+                            <span className="stat-value">
+                              {h.asset_type === 'cash' ? (
+                                '1.00'
+                              ) : editingPrice === h.asset_name ? (
+                                <span className="price-edit-panel">
+                                  <input
+                                    className="input input-sm"
+                                    type="number"
+                                    step="any"
+                                    value={priceInput}
+                                    onChange={(e) => setPriceInput(e.target.value)}
+                                    onKeyDown={(e) => e.key === 'Enter' && savePrice(h.asset_name, h.currency)}
+                                    autoFocus
+                                  />
+                                  <input
+                                    className="input input-sm"
+                                    type="date"
+                                    value={priceDateInput}
+                                    onChange={(e) => setPriceDateInput(e.target.value)}
+                                  />
+                                  <input
+                                    className="input input-sm price-note-input"
+                                    type="text"
+                                    placeholder="Note"
+                                    value={priceNotesInput}
+                                    onChange={(e) => setPriceNotesInput(e.target.value)}
+                                  />
+                                  <button className="btn-icon" onClick={() => savePrice(h.asset_name, h.currency)}><Check size={14} /></button>
+                                  <button className="btn-icon" onClick={() => setEditingPrice(null)}><X size={14} /></button>
+                                </span>
+                              ) : (
+                                <span className="editable" onClick={() => startEditPrice(h.asset_name, h.current_price)}>
+                                  {h.current_price !== null ? formatCurrency(h.current_price, h.currency) : 'Set price'}
+                                  <Edit3 size={12} />
+                                </span>
+                              )}
+                            </span>
+                          </div>
+                          <div className="holding-stat">
+                            <span className="stat-label">Invested</span>
+                            <span className="stat-value">{formatCurrency(h.total_invested, h.currency)}</span>
+                          </div>
+                          <div className="holding-stat">
+                            <span className="stat-label">Value</span>
+                            <span className="stat-value">
+                              {h.current_value !== null ? formatCurrency(h.current_value, h.currency) : '--'}
+                            </span>
+                          </div>
+                          <div className="holding-stat">
+                            <span className="stat-label">Unrealized P&amp;L</span>
+                            <span className={`stat-value ${h.unrealized_profit !== null ? (h.unrealized_profit >= 0 ? 'text-success' : 'text-error') : ''}`}>
+                              {h.unrealized_profit !== null
+                                ? `${formatCurrency(h.unrealized_profit, h.currency)} (${formatPct(h.unrealized_profit_pct ?? 0)})`
+                                : '--'}
+                            </span>
+                          </div>
+                          {h.realized_profit !== 0 && (
+                            <div className="holding-stat">
+                              <span className="stat-label">Realized P&amp;L</span>
+                              <span className={`stat-value ${h.realized_profit >= 0 ? 'text-success' : 'text-error'}`}>
+                                {formatCurrency(h.realized_profit, h.currency)}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                        <div className="holding-currency">{h.currency}</div>
+                      </div>
+                      {h.asset_type !== 'cash' && (
+                        <details className="price-history-details">
+                          <summary>Price history</summary>
+                          <div className="price-history-list">
+                            {priceHistory.map((point) => (
+                              <div key={point.id} className="price-history-row">
+                                <span>{formatDate(point.price_date)}</span>
+                                <strong>{formatCurrency(point.price, h.currency)}</strong>
+                                {point.notes && <em>{point.notes}</em>}
+                                <button className="btn-icon danger" onClick={() => deleteHistory(point.id)} title="Delete price point">
+                                  <Trash2 size={13} />
+                                </button>
+                              </div>
+                            ))}
+                            {priceHistory.length === 0 && (
+                              <div className="price-history-empty">No price history yet.</div>
+                            )}
+                          </div>
+                        </details>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </>
           ) : (
-            <div className="empty-state">
-              <p>No transactions yet.</p>
+            <div className="portfolio-select-empty">
+              <TrendingUp size={28} />
+              <h2>Asset Type Details</h2>
+              <p>No category selected.</p>
             </div>
           )}
         </div>
-      </div>
+        </>
+      )}
     </div>
   )
 }
