@@ -96,6 +96,25 @@ a { color: var(--brand); text-decoration: none; }
   border-radius: 50%;
   animation: spin .75s linear infinite;
 }
+.database-unlock-card {
+  width: min(100% - 32px, 380px);
+  display: grid; gap: 12px;
+  padding: 28px; border: 1px solid var(--line);
+  border-radius: var(--r-lg); background: var(--card-bg);
+  box-shadow: var(--shadow-card);
+}
+.database-unlock-card h1 {
+  margin: 0; font-size: 20px; font-weight: 700; color: var(--ink);
+}
+.database-unlock-card p {
+  margin: 0; font-size: 13px; line-height: 1.5; color: var(--ink-3);
+}
+.database-unlock-card .btn { justify-content: center; }
+.database-unlock-hint {
+  padding: 10px 12px; border-radius: var(--r-md);
+  background: var(--brand-soft); color: var(--ink-2);
+  font-size: 13px; line-height: 1.4;
+}
 @keyframes spin { to { transform: rotate(360deg); } }
 .error-text { color: var(--error); }
 
@@ -432,7 +451,22 @@ a { color: var(--brand); text-decoration: none; }
 .filter-row { display: flex; gap: 10px; margin-bottom: 18px; flex-wrap: wrap; }
 .filter-row .input { max-width: 220px; }
 .filter-row .select { max-width: 160px; }
-.cash-page-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.cash-page-actions {
+  display: inline-flex; gap: 4px; flex-wrap: wrap;
+  padding: 4px; border: 1px solid var(--line);
+  border-radius: var(--r-lg); background: var(--page-bg);
+}
+.cash-page-actions .btn {
+  padding: 8px 12px; border-radius: var(--r-md);
+  box-shadow: none;
+}
+.cash-page-actions .btn-secondary {
+  background: transparent; border-color: transparent; color: var(--ink-2);
+}
+.cash-page-actions .btn-secondary:hover:not(:disabled) {
+  background: var(--card-bg); border-color: var(--line);
+  color: var(--ink);
+}
 .cash-summary-card { margin-bottom: 18px; }
 .cash-metric-grid { margin-bottom: 18px; }
 .cash-ledger-header {
@@ -931,6 +965,22 @@ a { color: var(--brand); text-decoration: none; }
 }
 .import-warning { display: flex; gap: 10px; align-items: flex-start; font-size: 13.5px; color: var(--ink-2); }
 .import-warning svg { color: var(--amber); flex-shrink: 0; margin-top: 2px; }
+.database-password-form {
+  display: grid; gap: 10px; margin-bottom: 12px;
+}
+.database-password-form .form-label {
+  display: flex; flex-direction: column; gap: 5px;
+}
+.database-password-panel {
+  display: flex; gap: 10px; align-items: flex-start;
+  margin-top: 12px; padding: 12px; border-radius: var(--r-md);
+  background: rgba(255,255,255,.7); border: 1px solid rgba(217,119,6,.18);
+  color: var(--ink-2); font-size: 13px;
+}
+.database-password-panel svg { color: var(--brand); flex-shrink: 0; margin-top: 2px; }
+.database-password-panel strong { display: block; margin-bottom: 3px; }
+.database-password-panel p { margin: 0 0 8px; color: var(--ink-3); }
+.database-password-panel .input { max-width: 280px; }
 
 /* ============================================
    Scrollbar
@@ -978,6 +1028,8 @@ a { color: var(--brand); text-decoration: none; }
   .page { padding: 16px 14px; }
   .page-header { align-items: stretch; gap: 10px; margin-bottom: 16px; }
   .page-header .btn { width: 100%; justify-content: center; }
+  .cash-page-actions { width: 100%; display: grid; grid-template-columns: 1fr; }
+  .cash-page-actions .btn { justify-content: center; }
   .year-filter { width: 100%; }
   .year-filter .input { flex: 1; width: auto; }
   .card { padding: 16px; border-radius: var(--r-lg); }
@@ -1089,88 +1141,12 @@ a { color: var(--brand); text-decoration: none; }
 }
 
 /* ============================================
-   Auth Pages
-   ============================================ */
-.auth-page {
-  min-height: 100vh;
-  display: flex; align-items: center; justify-content: center;
-  padding: 24px;
-  background: linear-gradient(135deg, #f8f7ff 0%, #e8e7ff 50%, #f0f9ff 100%);
-}
-
-.auth-card {
-  width: 100%; max-width: 400px;
-  background: var(--card-bg);
-  border-radius: var(--r-2xl);
-  box-shadow: var(--shadow-modal);
-  padding: 40px 32px;
-  animation: slideUp .3s var(--ease);
-}
-
-.auth-header {
-  text-align: center; margin-bottom: 28px;
-}
-.auth-header .app-logo {
-  width: 48px; height: 48px;
-  margin: 0 auto 14px;
-}
-.auth-header h1 {
-  font-size: 22px; font-weight: 700; color: var(--ink);
-  letter-spacing: -0.4px; margin-bottom: 6px;
-}
-.auth-header p {
-  font-size: 13.5px; color: var(--ink-3); line-height: 1.5;
-}
-
-.auth-form { display: flex; flex-direction: column; gap: 16px; }
-
-.auth-error {
-  padding: 10px 14px; border-radius: var(--r-md);
-  background: var(--rose-soft); border: 1px solid rgba(225,29,72,.18);
-  color: var(--rose); font-size: 13px; font-weight: 500;
-}
-
-.auth-submit {
-  width: 100%; justify-content: center;
-  margin-top: 4px; height: 44px; font-size: 14px; font-weight: 600;
-}
-
-.auth-footer {
-  text-align: center; margin-top: 20px;
-  font-size: 13.5px; color: var(--ink-3);
-}
-.auth-footer a { font-weight: 600; }
-
-/* ============================================
-   Sidebar Footer (User Info & Logout)
+   Sidebar Footer
    ============================================ */
 .sidebar-footer {
   padding: 12px 10px; border-top: 1px solid rgba(255,255,255,0.08);
   margin-top: auto;
 }
-
-.sidebar-user {
-  display: flex; align-items: center; gap: 9px;
-  padding: 8px 10px; margin-bottom: 4px;
-}
-
-.sidebar-user-avatar {
-  width: 28px; height: 28px; border-radius: 50%;
-  background: var(--brand); color: #fff;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 12px; font-weight: 700; flex-shrink: 0;
-}
-
-.sidebar-user-name {
-  color: rgba(255,255,255,0.7); font-size: 12.5px; font-weight: 500;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-
-.sidebar-logout {
-  border: none; background: none; width: 100%; text-align: left;
-  font-family: var(--font);
-}
-.sidebar-logout:hover { color: var(--rose) !important; background: rgba(225,29,72,0.1) !important; }
 
 .sidebar-copyright {
   font-size: 10px; color: rgba(255,255,255,0.2);

@@ -6,7 +6,7 @@ import { computeAssetUnits, computeCashBalances, computeCashLedger, getCashAccou
 import * as Q from '../lib/queries'
 import { searchAssetCatalog, type AssetCatalogItem } from '../lib/assetCatalog'
 import { ASSET_TYPE_LABELS, type AssetType, type Currency, type Action, type Transaction } from '../types'
-import { Plus, Pencil, Trash2, X, ArrowUpCircle, Wallet, Landmark, ArrowRightLeft, Search } from 'lucide-react'
+import { Plus, Pencil, Trash2, X, ArrowUpCircle, ArrowDownCircle, Wallet, Landmark, ArrowRightLeft, Search } from 'lucide-react'
 
 const ASSET_TYPES: AssetType[] = ['stock', 'crypto', 'fund', 'gold', 'bond', 'savings']
 const CURRENCIES: Currency[] = ['THB', 'USD']
@@ -484,8 +484,8 @@ export function TransactionsPage() {
             <button className="btn btn-secondary" onClick={openExchange}>
               <ArrowRightLeft size={16} /> Exchange
             </button>
-            <button className="btn btn-primary" onClick={() => openCashAdd('deposit')}>
-              <Plus size={16} /> Deposit Cash
+            <button className="btn btn-secondary" onClick={() => openCashAdd('deposit')}>
+              <ArrowDownCircle size={16} /> Deposit
             </button>
           </div>
         </div>

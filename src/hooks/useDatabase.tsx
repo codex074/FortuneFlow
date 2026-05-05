@@ -1,6 +1,17 @@
-import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useState, useCallback, type FormEvent, type ReactNode } from 'react'
 import type { Database } from 'sql.js'
-import { initDatabase, persistDatabaseDebounced, exportDatabase, importDatabase, getSqlJs, setCurrentUserId } from '../lib/db'
+import {
+  initDatabase,
+  persistDatabaseDebounced,
+  exportDatabase,
+  importDatabase,
+  getSqlJs,
+  getDatabasePasswordInfo,
+  verifyDatabasePassword,
+  setCurrentUserId,
+  type DatabaseExportCredentials,
+  type DatabasePasswordInfo,
+} from '../lib/db'
 import { fetchUsdThbRate } from '../lib/exchangeRate'
 import * as Q from '../lib/queries'
 
@@ -9,14 +20,17 @@ interface DatabaseCtx {
   version: number
   persist: () => void
   bump: () => void
-  doExport: () => void
-  doImport: (file: File) => Promise<void>
+  doExport: (credentials: DatabaseExportCredentials) => Promise<void>
+  doImport: (file: File, password?: string) => Promise<void>
 }
 
 const DatabaseContext = createContext<DatabaseCtx | null>(null)
 
 export function DatabaseProvider({ children, userId }: { children: ReactNode; userId?: string }) {
   const [db, setDb] = useState<Database | null>(null)
+  const [passwordInfo, setPasswordInfo] = useState<DatabasePasswordInfo | null>(null)
+  const [unlockPassword, setUnlockPassword] = useState('')
+  const [unlockError, setUnlockError] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [version, setVersion] = useState(0)
 
@@ -25,12 +39,16 @@ export function DatabaseProvider({ children, userId }: { children: ReactNode; us
   useEffect(() => {
     setCurrentUserId(userId)
     initDatabase(userId)
-      .then(setDb)
+      .then((loadedDb) => {
+        const info = getDatabasePasswordInfo(loadedDb)
+        setPasswordInfo(info.protected ? info : null)
+        setDb(loadedDb)
+      })
       .catch((e) => setError(String(e)))
   }, [userId])
 
   useEffect(() => {
-    if (!db || !navigator.onLine) return
+    if (!db || passwordInfo || !navigator.onLine) return
 
     let cancelled = false
 
@@ -54,7 +72,7 @@ export function DatabaseProvider({ children, userId }: { children: ReactNode; us
     return () => {
       cancelled = true
     }
-  }, [db, bump])
+  }, [db, passwordInfo, bump])
 
   const persist = useCallback(() => {
     if (db) {
@@ -63,18 +81,39 @@ export function DatabaseProvider({ children, userId }: { children: ReactNode; us
     }
   }, [db, bump])
 
-  const doExport = useCallback(() => {
-    if (db) exportDatabase(db)
-  }, [db])
+  const doExport = useCallback(async (credentials: DatabaseExportCredentials) => {
+    if (!db) return
+    await exportDatabase(db, credentials)
+    bump()
+  }, [db, bump])
 
   const doImport = useCallback(
-    async (file: File) => {
+    async (file: File, password?: string) => {
       const SQL = await getSqlJs()
-      const newDb = await importDatabase(file, SQL)
+      const newDb = await importDatabase(file, SQL, password)
+      setPasswordInfo(null)
+      setUnlockPassword('')
+      setUnlockError(null)
       setDb(newDb)
+      bump()
     },
-    []
+    [bump]
   )
+
+  const unlockDatabase = useCallback(async (e: FormEvent) => {
+    e.preventDefault()
+    if (!db) return
+
+    const valid = await verifyDatabasePassword(db, unlockPassword)
+    if (!valid) {
+      setUnlockError('Invalid database password.')
+      return
+    }
+
+    setPasswordInfo(null)
+    setUnlockPassword('')
+    setUnlockError(null)
+  }, [db, unlockPassword])
 
   if (error) {
     return (
@@ -89,6 +128,28 @@ export function DatabaseProvider({ children, userId }: { children: ReactNode; us
       <div className="loading-screen">
         <div className="loading-spinner" />
         <p>Loading database...</p>
+      </div>
+    )
+  }
+
+  if (passwordInfo) {
+    return (
+      <div className="loading-screen">
+        <form className="database-unlock-card" onSubmit={unlockDatabase}>
+          <h1>Unlock Database</h1>
+          <p>Enter the database password before viewing or editing this data.</p>
+          {passwordInfo.hint && <div className="database-unlock-hint">Hint: {passwordInfo.hint}</div>}
+          <input
+            className="input"
+            type="password"
+            value={unlockPassword}
+            onChange={(e) => setUnlockPassword(e.target.value)}
+            placeholder="Database password"
+            autoFocus
+          />
+          {unlockError && <p className="text-error">{unlockError}</p>}
+          <button className="btn btn-primary" type="submit">Unlock</button>
+        </form>
       </div>
     )
   }

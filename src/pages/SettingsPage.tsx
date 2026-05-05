@@ -2,8 +2,8 @@ import { useEffect, useState, useRef } from 'react'
 import { useSettings } from '../hooks/useSettings'
 import { useDatabase } from '../hooks/useDatabase'
 import * as Q from '../lib/queries'
-import { CURRENT_DB_VERSION } from '../lib/db'
-import { Download, Upload, AlertTriangle, RefreshCw, Bell, Database } from 'lucide-react'
+import { CURRENT_DB_VERSION, getDatabaseBackupInfo, type DatabaseBackupInfo } from '../lib/db'
+import { Download, Upload, AlertTriangle, RefreshCw, Bell, Database, LockKeyhole } from 'lucide-react'
 
 const LAST_BACKUP_KEY = 'fortuneflow-last-backup-at'
 const BACKUP_REMINDER_DAYS = 7
@@ -22,7 +22,14 @@ export function SettingsPage() {
   const [rateInput, setRateInput] = useState(String(exchangeRate))
   const [importConfirm, setImportConfirm] = useState(false)
   const [importFile, setImportFile] = useState<File | null>(null)
+  const [importInfo, setImportInfo] = useState<DatabaseBackupInfo | null>(null)
+  const [importPassword, setImportPassword] = useState('')
   const [importError, setImportError] = useState<string | null>(null)
+  const [exportPassword, setExportPassword] = useState('')
+  const [exportConfirmPassword, setExportConfirmPassword] = useState('')
+  const [exportHint, setExportHint] = useState('')
+  const [exportError, setExportError] = useState<string | null>(null)
+  const [exporting, setExporting] = useState(false)
   const [saveMsg, setSaveMsg] = useState(false)
   const [refreshingRate, setRefreshingRate] = useState(false)
   const [refreshMsg, setRefreshMsg] = useState<string | null>(null)
@@ -66,32 +73,73 @@ export function SettingsPage() {
       })
     : null
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
       setImportFile(file)
       setImportConfirm(true)
+      setImportInfo(null)
+      setImportPassword('')
       setImportError(null)
+      try {
+        setImportInfo(await getDatabaseBackupInfo(file))
+      } catch (err) {
+        setImportError(String(err))
+      } finally {
+        e.target.value = ''
+      }
     }
   }
 
   const handleImport = async () => {
     if (!importFile) return
+    if (importInfo?.encrypted && !importPassword) {
+      setImportError('Please enter the database password.')
+      return
+    }
     try {
-      await doImport(importFile)
+      await doImport(importFile, importInfo?.encrypted ? importPassword : undefined)
       setImportConfirm(false)
       setImportFile(null)
-      window.location.reload()
+      setImportInfo(null)
+      setImportPassword('')
     } catch (err) {
       setImportError(String(err))
     }
   }
 
-  const handleExport = () => {
-    doExport()
-    const now = new Date().toISOString()
-    localStorage.setItem(LAST_BACKUP_KEY, now)
-    setLastBackupAt(now)
+  const handleExport = async () => {
+    setExportError(null)
+
+    if (exportPassword.length < 4) {
+      setExportError('Password must be at least 4 characters.')
+      return
+    }
+
+    if (exportPassword !== exportConfirmPassword) {
+      setExportError('Password confirmation does not match.')
+      return
+    }
+
+    if (!exportHint.trim()) {
+      setExportError('Please enter a password hint.')
+      return
+    }
+
+    try {
+      setExporting(true)
+      await doExport({ password: exportPassword, hint: exportHint })
+      const now = new Date().toISOString()
+      localStorage.setItem(LAST_BACKUP_KEY, now)
+      setLastBackupAt(now)
+      setExportPassword('')
+      setExportConfirmPassword('')
+      setExportHint('')
+    } catch (err) {
+      setExportError(String(err))
+    } finally {
+      setExporting(false)
+    }
   }
 
   const daysSinceBackup = lastBackupAt
@@ -212,9 +260,41 @@ export function SettingsPage() {
           <div className="backup-actions">
             <div className="backup-section">
               <h3>Export Database</h3>
-              <p className="card-desc">Download a backup of all your data.</p>
-              <button className="btn btn-secondary" onClick={handleExport}>
-                <Download size={16} /> Export .db File
+              <p className="card-desc">Download an encrypted backup of all your data.</p>
+              <div className="database-password-form">
+                <label className="form-label">
+                  Password
+                  <input
+                    className="input"
+                    type="password"
+                    value={exportPassword}
+                    onChange={(e) => setExportPassword(e.target.value)}
+                    placeholder="Set backup password"
+                  />
+                </label>
+                <label className="form-label">
+                  Confirm Password
+                  <input
+                    className="input"
+                    type="password"
+                    value={exportConfirmPassword}
+                    onChange={(e) => setExportConfirmPassword(e.target.value)}
+                    placeholder="Re-enter backup password"
+                  />
+                </label>
+                <label className="form-label">
+                  Password Hint
+                  <input
+                    className="input"
+                    value={exportHint}
+                    onChange={(e) => setExportHint(e.target.value)}
+                    placeholder="A hint only you understand"
+                  />
+                </label>
+              </div>
+              {exportError && <p className="text-error settings-message">{exportError}</p>}
+              <button className="btn btn-secondary" onClick={handleExport} disabled={exporting}>
+                <Download size={16} /> {exporting ? 'Encrypting...' : 'Export .db File'}
               </button>
             </div>
 
@@ -236,10 +316,29 @@ export function SettingsPage() {
                   <strong>Warning:</strong> Importing will replace ALL current data with the backup file "{importFile?.name}". This cannot be undone.
                 </div>
               </div>
+              {importInfo?.encrypted && (
+                <div className="database-password-panel">
+                  <LockKeyhole size={18} />
+                  <div>
+                    <strong>Password protected database</strong>
+                    {importInfo.hint && <p>Hint: {importInfo.hint}</p>}
+                    <input
+                      className="input"
+                      type="password"
+                      value={importPassword}
+                      onChange={(e) => setImportPassword(e.target.value)}
+                      placeholder="Enter database password"
+                    />
+                  </div>
+                </div>
+              )}
+              {importInfo && !importInfo.encrypted && (
+                <p className="settings-message">This database does not have a password, so it can be imported directly.</p>
+              )}
               {importError && <p className="text-error">{importError}</p>}
               <div className="modal-actions">
-                <button className="btn btn-secondary" onClick={() => { setImportConfirm(false); setImportFile(null) }}>Cancel</button>
-                <button className="btn btn-danger" onClick={handleImport}>Confirm Import</button>
+                <button className="btn btn-secondary" onClick={() => { setImportConfirm(false); setImportFile(null); setImportInfo(null); setImportPassword('') }}>Cancel</button>
+                <button className="btn btn-danger" onClick={handleImport} disabled={!importInfo && !importError}>Confirm Import</button>
               </div>
             </div>
           )}

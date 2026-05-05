@@ -4,7 +4,39 @@ import { get, set } from 'idb-keyval'
 
 const DB_KEY_PREFIX = 'fortuneflow-db'
 const LEGACY_DB_KEY = 'wealth-tracker-db'
+const ENCRYPTED_DB_MAGIC = 'FFDB1'
+const ENCRYPTION_ITERATIONS = 210_000
+const DB_PASSWORD_HASH_KEY = 'database_password_hash'
+const DB_PASSWORD_HINT_KEY = 'database_password_hint'
 export const CURRENT_DB_VERSION = 5
+
+interface EncryptedBackupHeader {
+  salt: string
+  iv: string
+  hint: string
+  iterations: number
+}
+
+export interface DatabaseExportCredentials {
+  password: string
+  hint: string
+}
+
+export interface DatabaseBackupInfo {
+  encrypted: boolean
+  hint?: string
+}
+
+interface DatabasePasswordHash {
+  salt: string
+  hash: string
+  iterations: number
+}
+
+export interface DatabasePasswordInfo {
+  protected: boolean
+  hint?: string
+}
 
 function getDbKey(userId?: string): string {
   return userId ? `${DB_KEY_PREFIX}-${userId}` : DB_KEY_PREFIX
@@ -335,9 +367,204 @@ export function persistDatabaseDebounced(db: Database): void {
   }, 300)
 }
 
-export function exportDatabase(db: Database): void {
+function encodeBase64(bytes: Uint8Array): string {
+  let binary = ''
+  bytes.forEach((byte) => {
+    binary += String.fromCharCode(byte)
+  })
+  return btoa(binary)
+}
+
+function decodeBase64(value: string): Uint8Array {
+  const binary = atob(value)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i)
+  }
+  return bytes
+}
+
+function timingSafeEqual(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false
+
+  let diff = 0
+  for (let i = 0; i < a.length; i += 1) {
+    diff |= a[i]! ^ b[i]!
+  }
+  return diff === 0
+}
+
+async function deriveEncryptionKey(password: string, salt: Uint8Array, iterations: number): Promise<CryptoKey> {
+  const passwordBytes = new TextEncoder().encode(password)
+  const baseKey = await crypto.subtle.importKey('raw', passwordBytes, 'PBKDF2', false, ['deriveKey'])
+
+  return crypto.subtle.deriveKey(
+    {
+      name: 'PBKDF2',
+      salt,
+      iterations,
+      hash: 'SHA-256',
+    },
+    baseKey,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt']
+  )
+}
+
+async function hashDatabasePassword(password: string, salt: Uint8Array, iterations: number): Promise<Uint8Array> {
+  const passwordBytes = new TextEncoder().encode(password)
+  const baseKey = await crypto.subtle.importKey('raw', passwordBytes, 'PBKDF2', false, ['deriveBits'])
+  const bits = await crypto.subtle.deriveBits(
+    {
+      name: 'PBKDF2',
+      salt,
+      iterations,
+      hash: 'SHA-256',
+    },
+    baseKey,
+    256
+  )
+  return new Uint8Array(bits)
+}
+
+function getSettingValue(db: Database, key: string): string | null {
+  const stmt = db.prepare('SELECT value FROM settings WHERE key = ?')
+  try {
+    stmt.bind([key])
+    return stmt.step() ? String((stmt.getAsObject() as { value: string }).value) : null
+  } finally {
+    stmt.free()
+  }
+}
+
+export function getDatabasePasswordInfo(db: Database): DatabasePasswordInfo {
+  const passwordHash = getSettingValue(db, DB_PASSWORD_HASH_KEY)
+  if (!passwordHash) return { protected: false }
+
+  return {
+    protected: true,
+    hint: getSettingValue(db, DB_PASSWORD_HINT_KEY) ?? '',
+  }
+}
+
+export async function setDatabasePassword(
+  db: Database,
+  credentials: DatabaseExportCredentials
+): Promise<void> {
+  const salt = crypto.getRandomValues(new Uint8Array(16))
+  const hash = await hashDatabasePassword(credentials.password, salt, ENCRYPTION_ITERATIONS)
+  const payload: DatabasePasswordHash = {
+    salt: encodeBase64(salt),
+    hash: encodeBase64(hash),
+    iterations: ENCRYPTION_ITERATIONS,
+  }
+
+  db.run('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', [
+    DB_PASSWORD_HASH_KEY,
+    JSON.stringify(payload),
+  ])
+  db.run('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', [
+    DB_PASSWORD_HINT_KEY,
+    credentials.hint.trim(),
+  ])
+}
+
+export async function verifyDatabasePassword(db: Database, password: string): Promise<boolean> {
+  const rawHash = getSettingValue(db, DB_PASSWORD_HASH_KEY)
+  if (!rawHash) return true
+
+  try {
+    const stored = JSON.parse(rawHash) as DatabasePasswordHash
+    const salt = decodeBase64(stored.salt)
+    const expected = decodeBase64(stored.hash)
+    const actual = await hashDatabasePassword(password, salt, stored.iterations)
+    return timingSafeEqual(actual, expected)
+  } catch {
+    return false
+  }
+}
+
+function findByte(bytes: Uint8Array, value: number, fromIndex = 0): number {
+  for (let i = fromIndex; i < bytes.length; i += 1) {
+    if (bytes[i] === value) return i
+  }
+  return -1
+}
+
+function parseEncryptedBackup(bytes: Uint8Array): { header: EncryptedBackupHeader; payload: Uint8Array } | null {
+  const decoder = new TextDecoder()
+  const firstLineEnd = findByte(bytes, 10)
+  if (firstLineEnd === -1) return null
+
+  const magic = decoder.decode(bytes.slice(0, firstLineEnd))
+  if (magic !== ENCRYPTED_DB_MAGIC) return null
+
+  const headerLineEnd = findByte(bytes, 10, firstLineEnd + 1)
+  if (headerLineEnd === -1) {
+    throw new Error('Invalid encrypted database file: missing metadata')
+  }
+
+  const headerText = decoder.decode(bytes.slice(firstLineEnd + 1, headerLineEnd))
+  const header = JSON.parse(headerText) as EncryptedBackupHeader
+
+  if (!header.salt || !header.iv || !header.iterations) {
+    throw new Error('Invalid encrypted database file: incomplete metadata')
+  }
+
+  return {
+    header,
+    payload: bytes.slice(headerLineEnd + 1),
+  }
+}
+
+async function encryptDatabaseBytes(data: Uint8Array, credentials: DatabaseExportCredentials): Promise<Blob> {
+  const salt = crypto.getRandomValues(new Uint8Array(16))
+  const iv = crypto.getRandomValues(new Uint8Array(12))
+  const key = await deriveEncryptionKey(credentials.password, salt, ENCRYPTION_ITERATIONS)
+  const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, data)
+  const header: EncryptedBackupHeader = {
+    salt: encodeBase64(salt),
+    iv: encodeBase64(iv),
+    hint: credentials.hint.trim(),
+    iterations: ENCRYPTION_ITERATIONS,
+  }
+  const prefix = new TextEncoder().encode(`${ENCRYPTED_DB_MAGIC}\n${JSON.stringify(header)}\n`)
+
+  return new Blob([prefix, new Uint8Array(encrypted)], { type: 'application/octet-stream' })
+}
+
+async function decryptDatabaseBytes(bytes: Uint8Array, password: string): Promise<Uint8Array> {
+  const parsed = parseEncryptedBackup(bytes)
+  if (!parsed) return bytes
+
+  try {
+    const salt = decodeBase64(parsed.header.salt)
+    const iv = decodeBase64(parsed.header.iv)
+    const key = await deriveEncryptionKey(password, salt, parsed.header.iterations)
+    const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, parsed.payload)
+    return new Uint8Array(decrypted)
+  } catch {
+    throw new Error('Invalid password. Please check the password and try again.')
+  }
+}
+
+export async function getDatabaseBackupInfo(file: File): Promise<DatabaseBackupInfo> {
+  const bytes = new Uint8Array(await file.arrayBuffer())
+  const parsed = parseEncryptedBackup(bytes)
+  return parsed ? { encrypted: true, hint: parsed.header.hint } : { encrypted: false }
+}
+
+export async function exportDatabase(db: Database, credentials?: DatabaseExportCredentials): Promise<void> {
+  if (credentials) {
+    await setDatabasePassword(db, credentials)
+    await persistDatabase(db)
+  }
+
   const data = db.export()
-  const blob = new Blob([data], { type: 'application/x-sqlite3' })
+  const blob = credentials
+    ? await encryptDatabaseBytes(data, credentials)
+    : new Blob([data], { type: 'application/x-sqlite3' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
@@ -348,10 +575,18 @@ export function exportDatabase(db: Database): void {
 
 export async function importDatabase(
   file: File,
-  SQL: SqlJsStatic
+  SQL: SqlJsStatic,
+  password?: string
 ): Promise<Database> {
-  const buffer = await file.arrayBuffer()
-  const db = new SQL.Database(new Uint8Array(buffer))
+  const bytes = new Uint8Array(await file.arrayBuffer())
+  const parsed = parseEncryptedBackup(bytes)
+
+  if (parsed && !password) {
+    throw new Error('This database backup is password protected.')
+  }
+
+  const databaseBytes = parsed ? await decryptDatabaseBytes(bytes, password ?? '') : bytes
+  const db = new SQL.Database(databaseBytes)
 
   const tables = db
     .exec("SELECT name FROM sqlite_master WHERE type='table'")[0]

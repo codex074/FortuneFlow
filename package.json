@@ -1,7 +1,7 @@
 {
   "name": "fortuneflow",
   "private": true,
-  "version": "1.0.9",
+  "version": "1.1.0",
   "description": "FortuneFlow desktop wealth dashboard",
   "main": "electron/main.cjs",
   "type": "module",
