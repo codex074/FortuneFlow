@@ -443,7 +443,7 @@ export function DashboardPage() {
                     <div className="recent-tx-right">
                       <div className="recent-tx-amount">{formatCurrency(tx.total_cost, tx.currency)}</div>
                       <div className="recent-tx-units">
-                        {tx.action === 'deposit' || tx.action === 'withdraw' || tx.action === 'dividend'
+                        {tx.action === 'deposit' || tx.action === 'withdraw' || tx.action === 'dividend' || tx.action === 'interest'
                           ? ASSET_TYPE_LABELS[tx.asset_type]
                           : `${tx.units} units`}
                       </div>

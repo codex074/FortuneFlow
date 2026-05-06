@@ -1,6 +1,6 @@
 export type AssetType = 'stock' | 'crypto' | 'fund' | 'gold' | 'bond' | 'savings' | 'cash'
 export type Currency = 'THB' | 'USD'
-export type Action = 'buy' | 'sell' | 'dividend' | 'deposit' | 'withdraw'
+export type Action = 'buy' | 'sell' | 'dividend' | 'interest' | 'deposit' | 'withdraw'
 export type TradingAction = 'buy' | 'sell'
 export type TradeDirection = 'long' | 'short'
 

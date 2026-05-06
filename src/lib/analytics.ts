@@ -93,7 +93,7 @@ export function computeAnalytics(
       s.totalCost -= costBasis
       s.cashflows.push({ amount: proceeds, date: txDate })
       portfolioCashflows.push({ amount: proceeds * rate, date: txDate })
-    } else if (tx.action === 'dividend') {
+    } else if (tx.action === 'dividend' || tx.action === 'interest') {
       s.totalDividends += tx.total_cost
       totalDividendsTHB += tx.total_cost * rate
       s.cashflows.push({ amount: tx.total_cost, date: txDate })
@@ -188,7 +188,7 @@ export function getDividendsByMonth(
   }))
 
   for (const tx of transactions) {
-    if (tx.action !== 'dividend') continue
+    if (tx.action !== 'dividend' && tx.action !== 'interest') continue
     if (parseInt(tx.date.slice(0, 4)) !== year) continue
     const m = parseInt(tx.date.slice(5, 7)) - 1
     if (m < 0 || m > 11) continue
@@ -206,7 +206,7 @@ export function getDividendsByAsset(
   const map = new Map<string, DividendByAsset>()
 
   for (const tx of transactions) {
-    if (tx.action !== 'dividend') continue
+    if (tx.action !== 'dividend' && tx.action !== 'interest') continue
     const rate = tx.currency === 'USD' ? exchangeRate : 1
     const existing = map.get(tx.asset_name) ?? {
       asset_name: tx.asset_name, currency: tx.currency, total: 0, count: 0,

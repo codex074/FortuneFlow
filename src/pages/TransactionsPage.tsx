@@ -86,6 +86,7 @@ function cashActionLabel(action: Action, assetName: string): string {
   if (action === 'buy') return `Buy ${assetName}`
   if (action === 'sell') return `Sell ${assetName}`
   if (action === 'dividend') return `Dividend ${assetName}`
+  if (action === 'interest') return `Interest ${assetName}`
   return assetName
 }
 
@@ -226,11 +227,11 @@ export function TransactionsPage() {
       asset_type: tx.asset_type,
       currency: tx.currency,
       action: tx.action,
-      units: tx.action === 'dividend' ? '' : String(tx.units),
-      price_per_unit: tx.action === 'dividend' ? '' : String(tx.price_per_unit),
-      fees: tx.action === 'dividend' ? '0' : String(tx.fees),
+      units: (tx.action === 'dividend' || tx.action === 'interest') ? '' : String(tx.units),
+      price_per_unit: (tx.action === 'dividend' || tx.action === 'interest') ? '' : String(tx.price_per_unit),
+      fees: (tx.action === 'dividend' || tx.action === 'interest') ? '0' : String(tx.fees),
       notes: tx.notes ?? '',
-      total_amount: tx.action === 'dividend' ? String(tx.total_cost) : '',
+      total_amount: (tx.action === 'dividend' || tx.action === 'interest') ? String(tx.total_cost) : '',
     })
     setEditingId(tx.id)
     setModalOpen(true)
@@ -250,11 +251,13 @@ export function TransactionsPage() {
   }
 
   const isDividend = form.action === 'dividend'
+  const isInterest = form.action === 'interest'
+  const isIncomeEntry = isDividend || isInterest
   const requestedUnits = parseFloat(form.units) || 0
-  const totalCost = isDividend
+  const totalCost = isIncomeEntry
     ? parseFloat(form.total_amount) || 0
     : requestedUnits * (parseFloat(form.price_per_unit) || 0) + (parseFloat(form.fees) || 0)
-  const cashDelta = isDividend
+  const cashDelta = isIncomeEntry
     ? parseFloat(form.total_amount) || 0
     : form.action === 'sell'
       ? requestedUnits * (parseFloat(form.price_per_unit) || 0) - (parseFloat(form.fees) || 0)
@@ -288,7 +291,7 @@ export function TransactionsPage() {
       e.preventDefault()
       if (!canSaveTransaction) return
 
-      if (form.action === 'dividend') {
+      if (isIncomeEntry) {
         const amount = parseFloat(form.total_amount)
         if (!form.asset_name.trim() || isNaN(amount) || amount <= 0) return
         const data = {
@@ -296,7 +299,7 @@ export function TransactionsPage() {
           asset_name: form.asset_name.trim(),
           asset_type: form.asset_type,
           currency: form.currency,
-          action: 'dividend' as Action,
+          action: form.action as Action,
           units: 1,
           price_per_unit: amount,
           fees: 0,
@@ -324,7 +327,7 @@ export function TransactionsPage() {
 
       setModalOpen(false)
     },
-    [form, editingId, add, update, canSaveTransaction]
+    [form, editingId, add, update, canSaveTransaction, isIncomeEntry]
   )
 
   const handleDelete = (id: number) => {
@@ -664,8 +667,8 @@ export function TransactionsPage() {
                   <td className="font-medium">{tx.asset_name}</td>
                   <td><span className="badge-tag">{ASSET_TYPE_LABELS[tx.asset_type]}</span></td>
                   <td><span className={`tx-action-badge ${tx.action}`}>{tx.action.toUpperCase()}</span></td>
-                  <td>{tx.action === 'dividend' ? '—' : tx.units}</td>
-                  <td>{tx.action === 'dividend' ? '—' : formatCurrency(tx.price_per_unit, tx.currency)}</td>
+                  <td>{(tx.action === 'dividend' || tx.action === 'interest') ? '—' : tx.units}</td>
+                  <td>{(tx.action === 'dividend' || tx.action === 'interest') ? '—' : formatCurrency(tx.price_per_unit, tx.currency)}</td>
                   <td className="font-medium">{formatCurrency(tx.total_cost, tx.currency)}</td>
                   <td>{tx.currency}</td>
                   <td>
@@ -813,12 +816,13 @@ export function TransactionsPage() {
                     <button type="button" className={`toggle-btn ${form.action === 'buy' ? 'active buy' : ''}`} onClick={() => setField('action', 'buy')}>Buy</button>
                     <button type="button" className={`toggle-btn ${form.action === 'sell' ? 'active sell' : ''}`} onClick={() => setField('action', 'sell')}>Sell</button>
                     <button type="button" className={`toggle-btn ${form.action === 'dividend' ? 'active dividend' : ''}`} onClick={() => setField('action', 'dividend')}>Dividend</button>
+                    <button type="button" className={`toggle-btn ${form.action === 'interest' ? 'active interest' : ''}`} onClick={() => setField('action', 'interest')}>Interest</button>
                   </div>
                 </div>
 
-                {isDividend ? (
+                {isIncomeEntry ? (
                   <label className="form-field" style={{ gridColumn: '1 / -1' }}>
-                    <span className="form-label">Dividend Amount</span>
+                    <span className="form-label">{isDividend ? 'Dividend Amount' : 'Interest Amount'}</span>
                     <input className="input" type="number" step="any" min="0" placeholder="0.00" value={form.total_amount} onChange={(e) => setField('total_amount', e.target.value)} required />
                   </label>
                 ) : (
@@ -840,7 +844,7 @@ export function TransactionsPage() {
               </div>
 
               <div className="total-preview">
-                {isDividend ? 'Dividend Amount' : 'Total Cost'}: <strong>{formatCurrency(totalCost, form.currency)}</strong>
+                {isDividend ? 'Dividend Amount' : isInterest ? 'Interest Amount' : 'Total Cost'}: <strong>{formatCurrency(totalCost, form.currency)}</strong>
               </div>
               <div className="cash-balance-preview">
                 Available Cash: <strong>{formatCurrency(availableCash[form.currency], form.currency)}</strong>

@@ -8,7 +8,7 @@ const ENCRYPTED_DB_MAGIC = 'FFDB1'
 const ENCRYPTION_ITERATIONS = 210_000
 const DB_PASSWORD_HASH_KEY = 'database_password_hash'
 const DB_PASSWORD_HINT_KEY = 'database_password_hint'
-export const CURRENT_DB_VERSION = 5
+export const CURRENT_DB_VERSION = 6
 
 interface EncryptedBackupHeader {
   salt: string
@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS transactions (
   asset_name TEXT NOT NULL,
   asset_type TEXT NOT NULL CHECK(asset_type IN ('stock','crypto','fund','gold','bond','savings','cash')),
   currency TEXT NOT NULL CHECK(currency IN ('THB','USD')),
-  action TEXT NOT NULL CHECK(action IN ('buy','sell','dividend','deposit','withdraw')),
+  action TEXT NOT NULL CHECK(action IN ('buy','sell','dividend','interest','deposit','withdraw')),
   units REAL NOT NULL,
   price_per_unit REAL NOT NULL,
   total_cost REAL NOT NULL,
@@ -233,7 +233,7 @@ function runMigrations(db: Database): void {
           asset_name TEXT NOT NULL,
           asset_type TEXT NOT NULL CHECK(asset_type IN ('stock','crypto','fund','gold','bond','savings','cash')),
           currency TEXT NOT NULL CHECK(currency IN ('THB','USD')),
-          action TEXT NOT NULL CHECK(action IN ('buy','sell','dividend','deposit','withdraw')),
+          action TEXT NOT NULL CHECK(action IN ('buy','sell','dividend','interest','deposit','withdraw')),
           units REAL NOT NULL,
           price_per_unit REAL NOT NULL,
           total_cost REAL NOT NULL,
@@ -343,6 +343,29 @@ function runMigrations(db: Database): void {
         )
       `)
       db.run(`INSERT OR REPLACE INTO settings (key,value) VALUES ('db_version','5')`)
+    }
+
+    if (version < 6) {
+      db.run(`
+        CREATE TABLE transactions_v6 (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          date TEXT NOT NULL,
+          asset_name TEXT NOT NULL,
+          asset_type TEXT NOT NULL CHECK(asset_type IN ('stock','crypto','fund','gold','bond','savings','cash')),
+          currency TEXT NOT NULL CHECK(currency IN ('THB','USD')),
+          action TEXT NOT NULL CHECK(action IN ('buy','sell','dividend','interest','deposit','withdraw')),
+          units REAL NOT NULL,
+          price_per_unit REAL NOT NULL,
+          total_cost REAL NOT NULL,
+          fees REAL DEFAULT 0,
+          notes TEXT,
+          created_at TEXT DEFAULT (datetime('now'))
+        )
+      `)
+      db.run(`INSERT INTO transactions_v6 SELECT * FROM transactions`)
+      db.run(`DROP TABLE transactions`)
+      db.run(`ALTER TABLE transactions_v6 RENAME TO transactions`)
+      db.run(`INSERT OR REPLACE INTO settings (key,value) VALUES ('db_version','6')`)
     }
   } catch {
     // Migration already applied or table doesn't exist yet

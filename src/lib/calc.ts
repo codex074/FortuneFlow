@@ -57,6 +57,7 @@ export function getCashDelta(tx: Transaction): number {
   if (tx.action === 'buy') return -tx.total_cost
   if (tx.action === 'sell') return tx.price_per_unit * tx.units - tx.fees
   if (tx.action === 'dividend') return tx.total_cost
+  if (tx.action === 'interest') return tx.total_cost
   return 0
 }
 
@@ -149,7 +150,7 @@ export function computeHoldings(transactions: Transaction[], assets: Asset[]): H
       existing.realized_profit += proceeds - costBasis
       existing.units -= tx.units
       existing.totalCost -= costBasis
-    } else if (tx.action === 'dividend') {
+    } else if (tx.action === 'dividend' || tx.action === 'interest') {
       existing.realized_profit += tx.total_cost
     }
 
@@ -356,7 +357,7 @@ export function computeRealizedProfit(transactions: Transaction[]): number {
       totalRealized += proceeds - costBasis
       existing.units -= tx.units
       existing.totalCost -= costBasis
-    } else if (tx.action === 'dividend') {
+    } else if (tx.action === 'dividend' || tx.action === 'interest') {
       totalRealized += tx.total_cost
     }
 

@@ -340,6 +340,7 @@ a { color: var(--brand); text-decoration: none; }
 .tx-action-badge.buy      { background: var(--emerald-soft); color: var(--emerald); }
 .tx-action-badge.sell     { background: var(--rose-soft);    color: var(--rose); }
 .tx-action-badge.dividend { background: var(--amber-soft);   color: var(--amber); }
+.tx-action-badge.interest { background: #ecfdf5;             color: #059669; }
 .tx-action-badge.deposit  { background: var(--sky-soft);     color: var(--sky); }
 .tx-action-badge.withdraw { background: var(--indigo-soft);  color: var(--indigo); }
 .tx-action-badge.exchange { background: #FFF7ED; color: #C2410C; }
@@ -600,6 +601,7 @@ a { color: var(--brand); text-decoration: none; }
 .toggle-btn.active.buy      { background: var(--emerald-soft); color: var(--emerald); font-weight: 600; }
 .toggle-btn.active.sell     { background: var(--rose-soft);    color: var(--rose);    font-weight: 600; }
 .toggle-btn.active.dividend { background: var(--amber-soft);   color: var(--amber);   font-weight: 600; }
+.toggle-btn.active.interest { background: #ecfdf5;             color: #059669;        font-weight: 600; }
 .toggle-btn.active.deposit  { background: var(--sky-soft);     color: var(--sky);     font-weight: 600; }
 .toggle-btn.active.withdraw { background: var(--indigo-soft);  color: var(--indigo);  font-weight: 600; }
 

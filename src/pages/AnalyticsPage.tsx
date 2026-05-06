@@ -45,7 +45,7 @@ export function AnalyticsPage() {
 
     const years = new Set<number>()
     for (const tx of transactions) {
-      if (tx.action === 'dividend') years.add(parseInt(tx.date.slice(0, 4)))
+      if (tx.action === 'dividend' || tx.action === 'interest') years.add(parseInt(tx.date.slice(0, 4)))
     }
     if (years.size === 0) years.add(new Date().getFullYear())
 
@@ -90,7 +90,7 @@ export function AnalyticsPage() {
             <DollarSign size={18} />
           </div>
           <div className="metric-body">
-            <p className="metric-label">Total Dividends</p>
+            <p className="metric-label">Total Dividends & Interest</p>
             <p className="metric-value">{formatCurrency(totalDividend, 'THB')}</p>
             <p className="metric-sub">
               {analytics.dividend_yield !== null
@@ -210,7 +210,7 @@ export function AnalyticsPage() {
         <div className="analytics-card analytics-card-wide">
           <div className="analytics-card-header">
             <DollarSign size={16} />
-            <h3>Dividend Income</h3>
+            <h3>Dividend & Interest Income</h3>
             <select
               className="analytics-year-select"
               value={dividendYear}
@@ -222,7 +222,7 @@ export function AnalyticsPage() {
             </select>
           </div>
           {totalDividend === 0 ? (
-            <p className="text-muted empty-hint">No dividend transactions recorded yet.</p>
+            <p className="text-muted empty-hint">No dividend or interest transactions recorded yet.</p>
           ) : (
             <ResponsiveContainer width="100%" height={180}>
               <BarChart data={dividendsByMonth} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
