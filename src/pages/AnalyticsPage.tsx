@@ -1,13 +1,14 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   Cell, ReferenceLine,
 } from 'recharts'
 import { useDatabase } from '../hooks/useDatabase'
 import { useSettings } from '../hooks/useSettings'
-import * as Q from '../lib/queries'
+import * as api from '../lib/api'
 import { computeAnalytics, getDividendsByMonth, getDividendsByAsset } from '../lib/analytics'
 import { formatCurrency } from '../lib/format'
+import type { Transaction, Asset } from '../types'
 import { TrendingUp, TrendingDown, Award, AlertTriangle, DollarSign, BarChart3 } from 'lucide-react'
 
 const BENCHMARKS = [
@@ -32,25 +33,31 @@ function CAGRLabel({ value }: { value: number | null }) {
 }
 
 export function AnalyticsPage() {
-  const { db, version } = useDatabase()
+  const { version } = useDatabase()
   const { exchangeRate } = useSettings()
   const [dividendYear, setDividendYear] = useState(new Date().getFullYear())
+  const [allTransactions, setAllTransactions] = useState<Transaction[]>([])
+  const [allAssets, setAllAssets] = useState<Asset[]>([])
+
+  useEffect(() => {
+    Promise.all([api.getTransactions(), api.getAssets()])
+      .then(([txs, assets]) => { setAllTransactions(txs); setAllAssets(assets) })
+      .catch(console.error)
+  }, [version])
 
   const { analytics, dividendsByMonth, dividendsByAsset, availableYears } = useMemo(() => {
-    const transactions = Q.getAllTransactions(db)
-    const assets = Q.getAllAssets(db)
-    const analytics = computeAnalytics(transactions, assets, exchangeRate)
-    const dividendsByMonth = getDividendsByMonth(transactions, exchangeRate, dividendYear)
-    const dividendsByAsset = getDividendsByAsset(transactions, exchangeRate)
+    const analytics = computeAnalytics(allTransactions, allAssets, exchangeRate)
+    const dividendsByMonth = getDividendsByMonth(allTransactions, exchangeRate, dividendYear)
+    const dividendsByAsset = getDividendsByAsset(allTransactions, exchangeRate)
 
     const years = new Set<number>()
-    for (const tx of transactions) {
+    for (const tx of allTransactions) {
       if (tx.action === 'dividend' || tx.action === 'interest') years.add(parseInt(tx.date.slice(0, 4)))
     }
     if (years.size === 0) years.add(new Date().getFullYear())
 
     return { analytics, dividendsByMonth, dividendsByAsset, availableYears: [...years].sort((a, b) => b - a) }
-  }, [db, version, exchangeRate, dividendYear])
+  }, [allTransactions, allAssets, exchangeRate, dividendYear])
 
   const benchmarkData = useMemo(() => {
     const portfolio = analytics.xirr !== null

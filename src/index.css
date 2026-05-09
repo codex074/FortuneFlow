@@ -1349,3 +1349,159 @@ a { color: var(--brand); text-decoration: none; }
 
 /* Form optional label */
 .form-optional { font-size: 11px; color: var(--ink-4); font-style: normal; font-weight: 400; margin-left: 4px; }
+
+/* ============================================
+   Login Screen
+   ============================================ */
+.login-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--page-bg);
+  padding: 24px;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 400px;
+  background: var(--card-bg);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-modal);
+  padding: 40px 32px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.login-brand {
+  text-align: center;
+  margin-bottom: 8px;
+}
+.login-brand svg {
+  width: 48px;
+  height: 48px;
+  margin: 0 auto 12px;
+}
+.login-brand h1 {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--ink);
+  margin: 0 0 4px;
+}
+.login-brand p {
+  font-size: 14px;
+  color: var(--ink-3);
+  margin: 0;
+}
+
+.login-submit {
+  width: 100%;
+  padding: 12px;
+  font-size: 15px;
+  font-weight: 600;
+  margin-top: 4px;
+}
+
+.login-switch {
+  text-align: center;
+  font-size: 13px;
+  color: var(--ink-3);
+  margin: 0;
+}
+
+.login-switch-btn {
+  background: none;
+  border: none;
+  color: var(--brand);
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0;
+}
+.login-switch-btn:hover {
+  text-decoration: underline;
+}
+
+.login-forgot-btn {
+  background: none;
+  border: none;
+  color: var(--ink-4);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 0;
+  text-align: center;
+  width: 100%;
+}
+.login-forgot-btn:hover {
+  color: var(--brand);
+  text-decoration: underline;
+}
+
+/* ============================================
+   Sidebar User & Logout
+   ============================================ */
+.sidebar-user {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0;
+  margin-bottom: 4px;
+}
+.sidebar-user-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sidebar-logout {
+  background: none;
+  border: none;
+  color: var(--ink-4);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: var(--r-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color .15s, background .15s;
+}
+.sidebar-logout:hover {
+  color: var(--error);
+  background: rgba(255, 59, 48, 0.08);
+}
+
+/* ============================================
+   Account Info (Settings)
+   ============================================ */
+.account-info {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 0;
+}
+.account-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--brand-soft);
+  color: var(--brand);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.account-details {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.account-details strong {
+  font-size: 15px;
+  color: var(--ink);
+}
+.account-details .text-muted {
+  font-size: 13px;
+}

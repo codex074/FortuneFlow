@@ -3,9 +3,9 @@ import { useDatabase } from '../hooks/useDatabase'
 import { useTransactions } from '../hooks/useTransactions'
 import { formatCurrency, formatDate, todayISO } from '../lib/format'
 import { computeAssetUnits, computeCashBalances, computeCashLedger, getCashAccountName } from '../lib/calc'
-import * as Q from '../lib/queries'
+import * as api from '../lib/api'
 import { searchAssetCatalog, type AssetCatalogItem } from '../lib/assetCatalog'
-import { ASSET_TYPE_LABELS, type AssetType, type Currency, type Action, type Transaction } from '../types'
+import { ASSET_TYPE_LABELS, type AssetType, type Currency, type Action, type Transaction, type Asset } from '../types'
 import { Plus, Pencil, Trash2, X, ArrowUpCircle, ArrowDownCircle, Wallet, Landmark, ArrowRightLeft, Search } from 'lucide-react'
 
 const ASSET_TYPES: AssetType[] = ['stock', 'crypto', 'fund', 'gold', 'bond', 'savings']
@@ -91,7 +91,7 @@ function cashActionLabel(action: Action, assetName: string): string {
 }
 
 export function TransactionsPage() {
-  const { db, version, persist } = useDatabase()
+  const { version, bump } = useDatabase()
   const [filterType, setFilterType] = useState<AssetType | ''>('')
   const [filterCurrency, setFilterCurrency] = useState<Currency | ''>('')
   const [search, setSearch] = useState('')
@@ -118,11 +118,17 @@ export function TransactionsPage() {
   const [catalogItems, setCatalogItems] = useState<AssetCatalogItem[]>([])
   const [catalogLoading, setCatalogLoading] = useState(false)
 
-  const allTransactions = useMemo(() => Q.getAllTransactions(db), [db, version])
-  const tradableAssets = useMemo(
-    () => Q.getAllAssets(db).filter((asset) => asset.type !== 'cash'),
-    [db, version]
-  )
+  const [allTransactions, setAllTransactions] = useState<Transaction[]>([])
+  const [tradableAssets, setTradableAssets] = useState<Asset[]>([])
+
+  useEffect(() => {
+    Promise.all([api.getTransactions(), api.getAssets()])
+      .then(([txs, assets]) => {
+        setAllTransactions(txs)
+        setTradableAssets(assets.filter((a) => a.type !== 'cash'))
+      })
+      .catch(console.error)
+  }, [version])
   const transactionMap = useMemo(
     () => new Map(allTransactions.map((tx) => [tx.id, tx])),
     [allTransactions]
@@ -335,7 +341,7 @@ export function TransactionsPage() {
     setDeleteConfirm(null)
   }
 
-  const handleCashSubmit = (e: React.FormEvent) => {
+  const handleCashSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!canSaveCashEntry) return
     const amount = parseFloat(cashForm.amount)
@@ -354,16 +360,16 @@ export function TransactionsPage() {
       total_cost_override: amount,
     }
 
-    if (cashEditingId !== null) Q.updateTransaction(db, cashEditingId, payload)
-    else Q.insertTransaction(db, payload)
+    if (cashEditingId !== null) await api.updateTransaction(cashEditingId, payload)
+    else await api.createTransaction(payload)
 
-    persist()
+    bump()
     setCashModalOpen(false)
   }
 
-  const handleCashDelete = (id: number) => {
-    Q.deleteTransaction(db, id)
-    persist()
+  const handleCashDelete = async (id: number) => {
+    await api.deleteTransaction(id)
+    bump()
     setCashDeleteConfirm(null)
   }
 
@@ -372,7 +378,7 @@ export function TransactionsPage() {
     setExchangeModalOpen(true)
   }
 
-  const handleExchangeSubmit = (e: React.FormEvent) => {
+  const handleExchangeSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     const fromAmt = parseFloat(exchangeForm.fromAmount)
     const toAmt = parseFloat(exchangeForm.toAmount)
@@ -383,7 +389,7 @@ export function TransactionsPage() {
       ? `[FX] ${exchangeForm.notes}`
       : `[FX] ${exchangeForm.fromCurrency} → ${exchangeForm.toCurrency}`
 
-    Q.insertTransaction(db, {
+    await api.createTransaction({
       date: exchangeForm.date,
       asset_name: getCashAccountName(exchangeForm.fromCurrency),
       asset_type: 'cash',
@@ -396,7 +402,7 @@ export function TransactionsPage() {
       total_cost_override: fromAmt,
     })
 
-    Q.insertTransaction(db, {
+    await api.createTransaction({
       date: exchangeForm.date,
       asset_name: getCashAccountName(exchangeForm.toCurrency),
       asset_type: 'cash',
@@ -409,7 +415,7 @@ export function TransactionsPage() {
       total_cost_override: toAmt,
     })
 
-    persist()
+    bump()
     setExchangeModalOpen(false)
   }
 

@@ -6,8 +6,11 @@ export default defineConfig({
   base: './',
   server: {
     port: parseInt(process.env['PORT'] || '5173'),
-  },
-  optimizeDeps: {
-    include: ['sql.js'],
+    proxy: {
+      '/api': {
+        target: 'http://localhost:3002',
+        changeOrigin: true,
+      },
+    },
   },
 })

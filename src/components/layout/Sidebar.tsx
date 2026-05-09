@@ -1,6 +1,7 @@
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, ArrowLeftRight, BarChart3, ClipboardList, Settings } from 'lucide-react'
+import { LayoutDashboard, ArrowLeftRight, BarChart3, ClipboardList, Settings, LogOut } from 'lucide-react'
 import { AppLogo } from '../brand/AppLogo'
+import { useAuth } from '../../hooks/useAuth'
 
 const NAV_ITEMS = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -11,6 +12,8 @@ const NAV_ITEMS = [
 ]
 
 export function Sidebar() {
+  const { user, logout } = useAuth()
+
   return (
     <>
       <aside className="sidebar">
@@ -37,7 +40,15 @@ export function Sidebar() {
         </div>
 
         <div className="sidebar-footer">
-          <p className="sidebar-copyright">© 2026 Codex074 v1.1.0</p>
+          {user && (
+            <div className="sidebar-user">
+              <span className="sidebar-user-name">{user.displayName}</span>
+              <button className="sidebar-logout" onClick={logout} title="Sign out">
+                <LogOut size={15} />
+              </button>
+            </div>
+          )}
+          <p className="sidebar-copyright">&copy; 2026 Codex074 v1.1.0</p>
         </div>
       </aside>
 

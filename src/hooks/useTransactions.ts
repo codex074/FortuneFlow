@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react'
 import { useDatabase } from './useDatabase'
-import * as Q from '../lib/queries'
+import * as api from '../lib/api'
 import type { Transaction, AssetType, Currency } from '../types'
 
 interface Filters {
@@ -10,47 +10,47 @@ interface Filters {
 }
 
 export function useTransactions(filters?: Filters) {
-  const { db, version, persist } = useDatabase()
+  const { version, bump } = useDatabase()
   const [transactions, setTransactions] = useState<Transaction[]>([])
 
   useEffect(() => {
-    setTransactions(Q.getAllTransactions(db, filters))
-  }, [db, version, filters?.asset_type, filters?.currency, filters?.search])
+    api.getTransactions(filters).then(setTransactions).catch(console.error)
+  }, [version, filters?.asset_type, filters?.currency, filters?.search])
 
   const add = useCallback(
-    (data: Parameters<typeof Q.insertTransaction>[1]) => {
-      Q.insertTransaction(db, data)
-      persist()
+    async (data: Parameters<typeof api.createTransaction>[0]) => {
+      await api.createTransaction(data)
+      bump()
     },
-    [db, persist]
+    [bump]
   )
 
   const update = useCallback(
-    (id: number, data: Parameters<typeof Q.updateTransaction>[2]) => {
-      Q.updateTransaction(db, id, data)
-      persist()
+    async (id: number, data: Parameters<typeof api.updateTransaction>[1]) => {
+      await api.updateTransaction(id, data)
+      bump()
     },
-    [db, persist]
+    [bump]
   )
 
   const remove = useCallback(
-    (id: number) => {
-      Q.deleteTransaction(db, id)
-      persist()
+    async (id: number) => {
+      await api.deleteTransaction(id)
+      bump()
     },
-    [db, persist]
+    [bump]
   )
 
   return { transactions, add, update, remove }
 }
 
 export function useRecentTransactions(limit = 10) {
-  const { db, version } = useDatabase()
+  const { version } = useDatabase()
   const [transactions, setTransactions] = useState<Transaction[]>([])
 
   useEffect(() => {
-    setTransactions(Q.getRecentTransactions(db, limit))
-  }, [db, version, limit])
+    api.getRecentTransactions(limit).then(setTransactions).catch(console.error)
+  }, [version, limit])
 
   return transactions
 }

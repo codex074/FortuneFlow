@@ -1,39 +1,53 @@
-import { useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useDatabase } from './useDatabase'
-import * as Q from '../lib/queries'
+import * as api from '../lib/api'
 import { fetchUsdThbRate } from '../lib/exchangeRate'
 
 export function useSettings() {
-  const { db, persist } = useDatabase()
+  const { version, bump } = useDatabase()
 
-  const exchangeRate = parseFloat(Q.getSetting(db, 'exchange_rate_thb_usd') ?? '35.0')
-  const exchangeRateSource = Q.getSetting(db, 'exchange_rate_source') || 'Manual'
-  const exchangeRateDate = Q.getSetting(db, 'exchange_rate_date')
-  const exchangeRateUpdatedAt = Q.getSetting(db, 'exchange_rate_updated_at')
-  const exchangeRateLastError = Q.getSetting(db, 'exchange_rate_last_error')
+  const [exchangeRate, setExchangeRateState] = useState(35.0)
+  const [exchangeRateSource, setExchangeRateSource] = useState('Manual')
+  const [exchangeRateDate, setExchangeRateDate] = useState<string | null>(null)
+  const [exchangeRateUpdatedAt, setExchangeRateUpdatedAt] = useState<string | null>(null)
+  const [exchangeRateLastError, setExchangeRateLastError] = useState<string | null>(null)
+
+  useEffect(() => {
+    api.getSettings().then((settings) => {
+      setExchangeRateState(parseFloat(settings.exchange_rate_thb_usd ?? '35.0'))
+      setExchangeRateSource(settings.exchange_rate_source || 'Manual')
+      setExchangeRateDate(settings.exchange_rate_date || null)
+      setExchangeRateUpdatedAt(settings.exchange_rate_updated_at || null)
+      setExchangeRateLastError(settings.exchange_rate_last_error || null)
+    }).catch(console.error)
+  }, [version])
 
   const setExchangeRate = useCallback(
-    (rate: number) => {
-      Q.setSetting(db, 'exchange_rate_thb_usd', String(rate))
-      Q.setSetting(db, 'exchange_rate_source', 'Manual')
-      Q.setSetting(db, 'exchange_rate_date', '')
-      Q.setSetting(db, 'exchange_rate_updated_at', new Date().toISOString())
-      Q.setSetting(db, 'exchange_rate_last_error', '')
-      persist()
+    async (rate: number) => {
+      await api.setSettingsBulk({
+        exchange_rate_thb_usd: String(rate),
+        exchange_rate_source: 'Manual',
+        exchange_rate_date: '',
+        exchange_rate_updated_at: new Date().toISOString(),
+        exchange_rate_last_error: '',
+      })
+      bump()
     },
-    [db, persist]
+    [bump]
   )
 
   const refreshExchangeRate = useCallback(async () => {
     const result = await fetchUsdThbRate()
-    Q.setSetting(db, 'exchange_rate_thb_usd', String(result.rate))
-    Q.setSetting(db, 'exchange_rate_source', result.source)
-    Q.setSetting(db, 'exchange_rate_date', result.date)
-    Q.setSetting(db, 'exchange_rate_updated_at', result.fetchedAt)
-    Q.setSetting(db, 'exchange_rate_last_error', '')
-    persist()
+    await api.setSettingsBulk({
+      exchange_rate_thb_usd: String(result.rate),
+      exchange_rate_source: result.source,
+      exchange_rate_date: result.date,
+      exchange_rate_updated_at: result.fetchedAt,
+      exchange_rate_last_error: '',
+    })
+    bump()
     return result
-  }, [db, persist])
+  }, [bump])
 
   return {
     exchangeRate,

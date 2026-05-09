@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { useDatabase } from '../hooks/useDatabase'
-import * as Q from '../lib/queries'
+import * as api from '../lib/api'
 import { computeFifoTrades, computeTradingPositions } from '../lib/calc'
 import { formatCurrency, formatDate, formatNumber, formatPct, todayISO } from '../lib/format'
 import type { Currency, TradeDirection, TradingAction, TradingTransaction, TfexTrade, ForexTrade } from '../types'
@@ -87,12 +87,12 @@ function pnlCell(pnl: number | null, currency: Currency) {
 
 // ─── Spot section ─────────────────────────────────────────────────────
 
-interface SpotProps { db: ReturnType<typeof useDatabase>['db']; version: number; persist: () => void; rate: number }
+interface SpotProps { version: number; bump: () => void; rate: number }
 
 type SpotForm = { date: string; asset_name: string; currency: Currency; action: TradingAction; units: string; price_per_unit: string; fees: string; notes: string }
 const emptySpotForm: SpotForm = { date: todayISO(), asset_name: '', currency: 'THB', action: 'buy', units: '', price_per_unit: '', fees: '0', notes: '' }
 
-function SpotSection({ db, version, persist, rate }: SpotProps) {
+function SpotSection({ version, bump, rate }: SpotProps) {
   const [modal, setModal] = useState(false)
   const [editId, setEditId] = useState<number | null>(null)
   const [form, setForm] = useState<SpotForm>(emptySpotForm)
@@ -101,10 +101,12 @@ function SpotSection({ db, version, persist, rate }: SpotProps) {
   const [filterAsset, setFilterAsset] = useState('')
   const [filterCur, setFilterCur] = useState<Currency | 'all'>('all')
 
-  const { trades, positions, allTxs, totals } = useMemo(() => {
-    const txs = Q.getAllTradingTransactions(db)
-    const t = computeFifoTrades(txs)
-    const p = computeTradingPositions(txs)
+  const [allTxs, setAllTxs] = useState<TradingTransaction[]>([])
+  useEffect(() => { api.getTradingTransactions().then(setAllTxs).catch(console.error) }, [version])
+
+  const { trades, positions, totals } = useMemo(() => {
+    const t = computeFifoTrades(allTxs)
+    const p = computeTradingPositions(allTxs)
     let pnlTHB = 0, proceedsTHB = 0, costTHB = 0, wins = 0, losses = 0
     for (const tr of t) {
       const r = tr.currency === 'USD' ? rate : 1
@@ -114,13 +116,12 @@ function SpotSection({ db, version, persist, rate }: SpotProps) {
       if (tr.realized_pnl > 0) wins++; else if (tr.realized_pnl < 0) losses++
     }
     return {
-      trades: t, positions: p, allTxs: txs,
+      trades: t, positions: p,
       totals: { pnlTHB, proceedsTHB, costTHB, wins, losses, count: t.length, openCount: p.length,
         winRate: t.length > 0 ? (wins / t.length) * 100 : null,
         pnlPct: costTHB > 0 ? (pnlTHB / costTHB) * 100 : null },
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [db, version, rate])
+  }, [allTxs, rate])
 
   const f = (arr: typeof trades) => arr.filter(t =>
     (filterCur === 'all' || t.currency === filterCur) &&
@@ -145,12 +146,12 @@ function SpotSection({ db, version, persist, rate }: SpotProps) {
   function openAdd() { setEditId(null); setForm({ ...emptySpotForm, date: todayISO() }); setModal(true) }
   function openEdit(tx: TradingTransaction) { setEditId(tx.id); setForm({ date: tx.date, asset_name: tx.asset_name, currency: tx.currency, action: tx.action, units: String(tx.units), price_per_unit: String(tx.price_per_unit), fees: String(tx.fees), notes: tx.notes ?? '' }); setModal(true) }
 
-  function submit(e: React.FormEvent) {
+  async function submit(e: React.FormEvent) {
     e.preventDefault()
     const data = { date: form.date, asset_name: form.asset_name.trim(), currency: form.currency, action: form.action, units: parseFloat(form.units), price_per_unit: parseFloat(form.price_per_unit), fees: parseFloat(form.fees) || 0, notes: form.notes }
     if (!data.asset_name || isNaN(data.units) || isNaN(data.price_per_unit)) return
-    editId !== null ? Q.updateTradingTransaction(db, editId, data) : Q.insertTradingTransaction(db, data)
-    persist(); setModal(false)
+    if (editId !== null) await api.updateTradingTransaction(editId, data); else await api.createTradingTransaction(data)
+    bump(); setModal(false)
   }
 
   return (
@@ -246,7 +247,7 @@ function SpotSection({ db, version, persist, rate }: SpotProps) {
               <td className="text-muted">{tx.notes ?? '—'}</td>
               <td><span className="row-actions">
                 <button className="btn-icon" onClick={() => openEdit(tx)}><Pencil size={13} /></button>
-                {delId === tx.id ? <><button className="btn-icon danger" onClick={() => { Q.deleteTradingTransaction(db, tx.id); persist(); setDelId(null) }}>Confirm</button><button className="btn-icon" onClick={() => setDelId(null)}>Cancel</button></> : <button className="btn-icon danger" onClick={() => setDelId(tx.id)}><Trash2 size={13} /></button>}
+                {delId === tx.id ? <><button className="btn-icon danger" onClick={() => { api.deleteTradingTransaction(tx.id).then(() => bump()); setDelId(null) }}>Confirm</button><button className="btn-icon" onClick={() => setDelId(null)}>Cancel</button></> : <button className="btn-icon danger" onClick={() => setDelId(tx.id)}><Trash2 size={13} /></button>}
               </span></td>
             </tr>)}</tbody>
           </table></div>
@@ -297,7 +298,7 @@ function SpotSection({ db, version, persist, rate }: SpotProps) {
 
 // ─── TFEX section ─────────────────────────────────────────────────────
 
-interface TfexProps { db: ReturnType<typeof useDatabase>['db']; version: number; persist: () => void }
+interface TfexProps { version: number; bump: () => void }
 
 type TfexForm = {
   instrument: string; monthCode: string; direction: TradeDirection
@@ -314,25 +315,26 @@ function emptyTfexForm(): TfexForm {
   }
 }
 
-function TfexSection({ db, version, persist }: TfexProps) {
+function TfexSection({ version, bump }: TfexProps) {
   const [modal, setModal] = useState(false)
   const [editId, setEditId] = useState<number | null>(null)
   const [form, setForm] = useState<TfexForm>(emptyTfexForm)
   const [delId, setDelId] = useState<number | null>(null)
 
+  const [allTrades, setAllTrades] = useState<TfexTrade[]>([])
+  useEffect(() => { api.getTfexTrades().then(setAllTrades).catch(console.error) }, [version])
+
   const { trades, totals } = useMemo(() => {
-    const all = Q.getAllTfexTrades(db)
     let pnlTHB = 0, wins = 0, losses = 0, open = 0
-    for (const t of all) {
+    for (const t of allTrades) {
       const p = tfexPnl(t)
       if (p === null) { open++; continue }
       pnlTHB += p
       if (p > 0) wins++; else if (p < 0) losses++
     }
-    const closed = all.filter(t => t.exit_price !== null).length
-    return { trades: all, totals: { pnlTHB, wins, losses, open, closed, winRate: closed > 0 ? (wins / closed) * 100 : null } }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [db, version])
+    const closed = allTrades.filter(t => t.exit_price !== null).length
+    return { trades: allTrades, totals: { pnlTHB, wins, losses, open, closed, winRate: closed > 0 ? (wins / closed) * 100 : null } }
+  }, [allTrades])
 
   const sf = <K extends keyof TfexForm>(k: K, v: TfexForm[K]) => setForm(f => ({ ...f, [k]: v }))
 
@@ -356,12 +358,12 @@ function TfexSection({ db, version, persist }: TfexProps) {
     setModal(true)
   }
 
-  function submit(e: React.FormEvent) {
+  async function submit(e: React.FormEvent) {
     e.preventDefault()
     const data = { entry_date: form.entry_date, contract: contractName(), direction: form.direction, contracts: parseInt(form.contracts), multiplier: parseFloat(form.multiplier), entry_price: parseFloat(form.entry_price), exit_date: form.exit_date, exit_price: form.exit_price, commission: parseFloat(form.commission) || 0, notes: form.notes }
     if (!data.contract || isNaN(data.contracts) || isNaN(data.entry_price)) return
-    editId !== null ? Q.updateTfexTrade(db, editId, data) : Q.insertTfexTrade(db, data)
-    persist(); setModal(false)
+    if (editId !== null) await api.updateTfexTrade(editId, data); else await api.createTfexTrade(data)
+    bump(); setModal(false)
   }
 
   const previewPnl = (() => {
@@ -411,7 +413,7 @@ function TfexSection({ db, version, persist }: TfexProps) {
                 <td>{statusBadge(t.exit_price === null)}</td>
                 <td><span className="row-actions">
                   <button className="btn-icon" onClick={() => openEdit(t)}><Pencil size={13} /></button>
-                  {delId === t.id ? <><button className="btn-icon danger" onClick={() => { Q.deleteTfexTrade(db, t.id); persist(); setDelId(null) }}>Confirm</button><button className="btn-icon" onClick={() => setDelId(null)}>Cancel</button></> : <button className="btn-icon danger" onClick={() => setDelId(t.id)}><Trash2 size={13} /></button>}
+                  {delId === t.id ? <><button className="btn-icon danger" onClick={() => { api.deleteTfexTrade(t.id).then(() => bump()); setDelId(null) }}>Confirm</button><button className="btn-icon" onClick={() => setDelId(null)}>Cancel</button></> : <button className="btn-icon danger" onClick={() => setDelId(t.id)}><Trash2 size={13} /></button>}
                 </span></td>
               </tr>
             })}</tbody>
@@ -488,7 +490,7 @@ function TfexSection({ db, version, persist }: TfexProps) {
 
 // ─── FOREX section ────────────────────────────────────────────────────
 
-interface ForexProps { db: ReturnType<typeof useDatabase>['db']; version: number; persist: () => void; rate: number }
+interface ForexProps { version: number; bump: () => void; rate: number }
 
 type ForexForm = {
   pairPreset: string; pair: string; direction: TradeDirection
@@ -504,26 +506,27 @@ function emptyForexForm(): ForexForm {
   }
 }
 
-function ForexSection({ db, version, persist, rate }: ForexProps) {
+function ForexSection({ version, bump, rate }: ForexProps) {
   const [modal, setModal] = useState(false)
   const [editId, setEditId] = useState<number | null>(null)
   const [form, setForm] = useState<ForexForm>(emptyForexForm)
   const [delId, setDelId] = useState<number | null>(null)
 
+  const [allForex, setAllForex] = useState<ForexTrade[]>([])
+  useEffect(() => { api.getForexTrades().then(setAllForex).catch(console.error) }, [version])
+
   const { trades, totals } = useMemo(() => {
-    const all = Q.getAllForexTrades(db)
     let pnlTHB = 0, wins = 0, losses = 0, open = 0
-    for (const t of all) {
+    for (const t of allForex) {
       const p = forexPnl(t)
       if (p === null) { open++; continue }
       const r = t.currency === 'USD' ? rate : 1
       pnlTHB += p * r
       if (p > 0) wins++; else if (p < 0) losses++
     }
-    const closed = all.filter(t => t.exit_price !== null).length
-    return { trades: all, totals: { pnlTHB, wins, losses, open, closed, winRate: closed > 0 ? (wins / closed) * 100 : null } }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [db, version, rate])
+    const closed = allForex.filter(t => t.exit_price !== null).length
+    return { trades: allForex, totals: { pnlTHB, wins, losses, open, closed, winRate: closed > 0 ? (wins / closed) * 100 : null } }
+  }, [allForex, rate])
 
   const sf = <K extends keyof ForexForm>(k: K, v: ForexForm[K]) => setForm(f => ({ ...f, [k]: v }))
 
@@ -540,12 +543,12 @@ function ForexSection({ db, version, persist, rate }: ForexProps) {
     setModal(true)
   }
 
-  function submit(e: React.FormEvent) {
+  async function submit(e: React.FormEvent) {
     e.preventDefault()
     const data = { entry_date: form.entry_date, pair: form.pair.trim().toUpperCase(), direction: form.direction, lots: parseFloat(form.lots), lot_size: parseFloat(form.lot_size), entry_price: parseFloat(form.entry_price), exit_date: form.exit_date, exit_price: form.exit_price, commission: parseFloat(form.commission) || 0, currency: form.currency, notes: form.notes }
     if (!data.pair || isNaN(data.lots) || isNaN(data.entry_price)) return
-    editId !== null ? Q.updateForexTrade(db, editId, data) : Q.insertForexTrade(db, data)
-    persist(); setModal(false)
+    if (editId !== null) await api.updateForexTrade(editId, data); else await api.createForexTrade(data)
+    bump(); setModal(false)
   }
 
   const previewPnl = (() => {
@@ -591,7 +594,7 @@ function ForexSection({ db, version, persist, rate }: ForexProps) {
                 <td>{statusBadge(t.exit_price === null)}</td>
                 <td><span className="row-actions">
                   <button className="btn-icon" onClick={() => openEdit(t)}><Pencil size={13} /></button>
-                  {delId === t.id ? <><button className="btn-icon danger" onClick={() => { Q.deleteForexTrade(db, t.id); persist(); setDelId(null) }}>Confirm</button><button className="btn-icon" onClick={() => setDelId(null)}>Cancel</button></> : <button className="btn-icon danger" onClick={() => setDelId(t.id)}><Trash2 size={13} /></button>}
+                  {delId === t.id ? <><button className="btn-icon danger" onClick={() => { api.deleteForexTrade(t.id).then(() => bump()); setDelId(null) }}>Confirm</button><button className="btn-icon" onClick={() => setDelId(null)}>Cancel</button></> : <button className="btn-icon danger" onClick={() => setDelId(t.id)}><Trash2 size={13} /></button>}
                 </span></td>
               </tr>
             })}</tbody>
@@ -667,14 +670,15 @@ function ForexSection({ db, version, persist, rate }: ForexProps) {
 type MarketTab = 'spot' | 'tfex' | 'forex'
 
 export function TradingRecordPage() {
-  const { db, version, persist } = useDatabase()
+  const { version, bump } = useDatabase()
   const [market, setMarket] = useState<MarketTab>('spot')
+  const [rate, setRate] = useState(35.0)
 
-  const rate = useMemo(() => {
-    const r = Q.getSetting(db, 'exchange_rate_thb_usd')
-    return r ? parseFloat(r) : 35.0
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [db, version])
+  useEffect(() => {
+    api.getSettings().then((s) => {
+      setRate(parseFloat(s.exchange_rate_thb_usd ?? '35.0'))
+    }).catch(console.error)
+  }, [version])
 
   return (
     <div className="page">
@@ -685,7 +689,6 @@ export function TradingRecordPage() {
         </div>
       </div>
 
-      {/* Market switcher */}
       <div className="market-tabs">
         {([['spot', 'Spot / ETF', 'FIFO'], ['tfex', 'TFEX', 'Futures'], ['forex', 'FOREX / CFD', 'Derivatives']] as const).map(([key, label, sub]) => (
           <button key={key} className={`market-tab ${market === key ? 'active' : ''}`} onClick={() => setMarket(key)}>
@@ -695,9 +698,9 @@ export function TradingRecordPage() {
         ))}
       </div>
 
-      {market === 'spot'  && <SpotSection  db={db} version={version} persist={persist} rate={rate} />}
-      {market === 'tfex'  && <TfexSection  db={db} version={version} persist={persist} />}
-      {market === 'forex' && <ForexSection db={db} version={version} persist={persist} rate={rate} />}
+      {market === 'spot'  && <SpotSection  version={version} bump={bump} rate={rate} />}
+      {market === 'tfex'  && <TfexSection  version={version} bump={bump} />}
+      {market === 'forex' && <ForexSection version={version} bump={bump} rate={rate} />}
     </div>
   )
 }
