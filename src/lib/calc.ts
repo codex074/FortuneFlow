@@ -115,8 +115,21 @@ export function computeCashLedger(transactions: Transaction[]): CashLedgerEntry[
   return ledger.sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id)
 }
 
-export function computeHoldings(transactions: Transaction[], assets: Asset[]): Holding[] {
+function holdingKey(assetName: string, assetType: AssetType, currency: Currency): string {
+  return `${assetName}\u0000${assetType}\u0000${currency}`
+}
+
+interface ComputeHoldingsOptions {
+  includeClosed?: boolean
+}
+
+export function computeHoldings(
+  transactions: Transaction[],
+  assets: Asset[],
+  options: ComputeHoldingsOptions = {}
+): Holding[] {
   const map = new Map<string, {
+    asset_name: string
     units: number
     totalCost: number
     asset_type: AssetType
@@ -132,7 +145,9 @@ export function computeHoldings(transactions: Transaction[], assets: Asset[]): H
     cashBalances[tx.currency] += getCashDelta(tx)
     if (tx.asset_type === 'cash' || tx.action === 'deposit' || tx.action === 'withdraw') continue
 
-    const existing = map.get(tx.asset_name) ?? {
+    const key = holdingKey(tx.asset_name, tx.asset_type, tx.currency)
+    const existing = map.get(key) ?? {
+      asset_name: tx.asset_name,
       units: 0,
       totalCost: 0,
       asset_type: tx.asset_type,
@@ -154,31 +169,31 @@ export function computeHoldings(transactions: Transaction[], assets: Asset[]): H
       existing.realized_profit += tx.total_cost
     }
 
-    map.set(tx.asset_name, existing)
+    map.set(key, existing)
   }
 
-  const assetMap = new Map(assets.map((a) => [a.name, a]))
+  const assetMap = new Map(assets.map((a) => [holdingKey(a.name, a.type, a.currency), a]))
 
   const holdings: Holding[] = []
-  for (const [name, data] of map) {
-    if (data.units <= 0.0001) {
-      // Fully sold — still include if there's realized profit to show? No, filter out from holdings view.
+  for (const [key, data] of map) {
+    const isClosed = data.units <= 0.0001
+    if (isClosed && (!options.includeClosed || Math.abs(data.realized_profit) <= 0.0001)) {
       continue
     }
 
-    const asset = assetMap.get(name)
+    const asset = assetMap.get(key)
     const currentPrice = asset?.current_price ?? null
-    const currentValue = currentPrice !== null ? currentPrice * data.units : null
-    const unrealizedProfit = currentValue !== null ? currentValue - data.totalCost : null
-    const unrealizedProfitPct = unrealizedProfit !== null && data.totalCost > 0 ? (unrealizedProfit / data.totalCost) * 100 : null
+    const currentValue = isClosed ? 0 : (currentPrice !== null ? currentPrice * data.units : null)
+    const unrealizedProfit = isClosed ? 0 : (currentValue !== null ? currentValue - data.totalCost : null)
+    const unrealizedProfitPct = isClosed ? null : (unrealizedProfit !== null && data.totalCost > 0 ? (unrealizedProfit / data.totalCost) * 100 : null)
 
     holdings.push({
-      asset_name: name,
+      asset_name: data.asset_name,
       asset_type: data.asset_type,
       currency: data.currency,
       units: data.units,
-      avg_cost: data.totalCost / data.units,
-      total_invested: data.totalCost,
+      avg_cost: isClosed ? 0 : data.totalCost / data.units,
+      total_invested: isClosed ? 0 : data.totalCost,
       current_price: currentPrice,
       current_value: currentValue,
       unrealized_profit: unrealizedProfit,

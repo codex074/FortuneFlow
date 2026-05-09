@@ -106,14 +106,17 @@ export function DashboardPage() {
   const quarterlyGrowth = computeQuarterlyPortfolioGrowth(allTransactions, allPriceHistory, exchangeRate, new Date(), 8, selectedYear)
 
   const portfolioHoldings = computeHoldings(allTransactions, allAssets)
-  const portfolioTotals = computeTotals(portfolioHoldings, exchangeRate)
+  const portfolioSummaryHoldings = computeHoldings(allTransactions, allAssets, { includeClosed: true })
+  const portfolioTotals = computeTotals(portfolioSummaryHoldings, exchangeRate)
   const portfolioAlloc = allocationByType(portfolioHoldings, exchangeRate)
   const totalAllocationTHB = portfolioAlloc.reduce((sum, item) => sum + item.value, 0)
   const grouped = groupByAssetType(portfolioHoldings)
+  const groupedSummary = groupByAssetType(portfolioSummaryHoldings)
 
   const typeSummaries: TypeSummary[] = portfolioAlloc.map((item) => {
     const type = item.type as AssetType
     const items = grouped.get(type) ?? []
+    const summaryItems = groupedSummary.get(type) ?? items
     const investedTHB = items.reduce((sum, h) => {
       const rate = h.currency === 'USD' ? exchangeRate : 1
       return sum + h.total_invested * rate
@@ -122,7 +125,7 @@ export function DashboardPage() {
       const rate = h.currency === 'USD' ? exchangeRate : 1
       return sum + (h.unrealized_profit ?? 0) * rate
     }, 0)
-    const realizedProfitTHB = items.reduce((sum, h) => {
+    const realizedProfitTHB = summaryItems.reduce((sum, h) => {
       const rate = h.currency === 'USD' ? exchangeRate : 1
       return sum + h.realized_profit * rate
     }, 0)

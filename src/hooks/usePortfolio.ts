@@ -43,7 +43,7 @@ export function usePortfolio() {
       .then(([transactions, assets, settings]) => {
         const exchangeRate = settings.exchange_rate_thb_usd ? parseFloat(settings.exchange_rate_thb_usd) : 35.0
         const holdings = computeHoldings(transactions, assets)
-        const totals = computeTotals(holdings, exchangeRate)
+        const totals = computeTotals(computeHoldings(transactions, assets, { includeClosed: true }), exchangeRate)
         const allocation = allocationByType(holdings, exchangeRate)
         setPortfolio({ holdings, totals, allocation, exchangeRate, assets })
       })
