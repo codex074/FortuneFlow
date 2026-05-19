@@ -765,7 +765,7 @@ export function computeQuarterlyPortfolioGrowth(
   const lastQuarterStart = requestedYear !== null
     ? (requestedYear === today.getFullYear() ? currentQuarterStart : new Date(requestedYear, 9, 1))
     : currentQuarterStart
-  const quarters: { quarter: string; valueTHB: number; netFlowTHB: number }[] = []
+  const quarters: { quarter: string; asOf: string; valueTHB: number; netFlowTHB: number }[] = []
   const priceMap = buildPriceHistoryMap(priceHistory)
   const assetStates = new Map<string, {
     assetName: string
@@ -843,10 +843,45 @@ export function computeQuarterlyPortfolioGrowth(
 
     quarters.push({
       quarter: quarterKey(cursor),
+      asOf: quarterAsOf,
       valueTHB,
       netFlowTHB,
     })
   }
 
   return quarters.slice(-maxQuarters)
+}
+
+export interface BenchmarkRef {
+  name: string
+  currency: Currency
+}
+
+export function computeBenchmarkSeries(
+  priceHistory: PriceHistory[],
+  benchmark: BenchmarkRef,
+  quarters: { asOf: string; valueTHB: number }[]
+): (number | null)[] {
+  const priceMap = buildPriceHistoryMap(priceHistory)
+  const rawPrices: (number | null)[] = quarters.map((q) =>
+    findHistoricalPrice(priceMap, benchmark.name, benchmark.currency, q.asOf)
+  )
+
+  let anchorIdx = -1
+  for (let i = 0; i < rawPrices.length; i++) {
+    if (rawPrices[i] !== null && quarters[i]!.valueTHB > 0) {
+      anchorIdx = i
+      break
+    }
+  }
+  if (anchorIdx === -1) return rawPrices.map(() => null)
+
+  const anchorPrice = rawPrices[anchorIdx]!
+  const anchorValueTHB = quarters[anchorIdx]!.valueTHB
+  if (anchorPrice <= 0 || anchorValueTHB <= 0) return rawPrices.map(() => null)
+
+  return rawPrices.map((p) => {
+    if (p === null) return null
+    return (p / anchorPrice) * anchorValueTHB
+  })
 }

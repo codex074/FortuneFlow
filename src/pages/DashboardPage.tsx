@@ -8,10 +8,12 @@ import {
   computeYtdFlow,
   computeYtdInvestmentTrend,
   computeQuarterlyPortfolioGrowth,
+  computeBenchmarkSeries,
   groupByAssetType,
   computeHoldingXirrs,
   computePortfolioXirr,
   holdingKey,
+  type BenchmarkRef,
 } from '../lib/calc'
 import { formatCurrency, formatPct, formatDate, formatNumber, todayISO } from '../lib/format'
 import { ASSET_TYPE_LABELS, ASSET_TYPE_COLORS, type AssetType, type Currency, type Transaction, type Asset, type PriceHistory, type Holding } from '../types'
@@ -20,6 +22,8 @@ import {
   AreaChart,
   CartesianGrid,
   Cell,
+  Legend,
+  Line,
   Pie,
   PieChart,
   ResponsiveContainer,
@@ -36,39 +40,11 @@ import {
   CheckCircle,
   Edit3,
   Trash2,
-  X,
 } from 'lucide-react'
+import { MonthlyPriceModal } from '../components/MonthlyPriceModal'
 
 function formatSharePct(value: number): string {
   return `${value.toFixed(1)}%`
-}
-
-function listMonths(startMonth: string, endMonth: string): string[] {
-  const [syRaw, smRaw] = startMonth.split('-').map(Number)
-  const [eyRaw, emRaw] = endMonth.split('-').map(Number)
-  if (!syRaw || !smRaw || !eyRaw || !emRaw) return []
-  let y = syRaw
-  let m = smRaw
-  const out: string[] = []
-  while (y < eyRaw || (y === eyRaw && m <= emRaw)) {
-    out.push(`${y}-${String(m).padStart(2, '0')}`)
-    m++
-    if (m > 12) { m = 1; y++ }
-  }
-  return out
-}
-
-function lastDayOfMonth(monthKey: string): string {
-  const [y, m] = monthKey.split('-').map(Number)
-  if (!y || !m) return monthKey
-  const day = new Date(y, m, 0).getDate()
-  return `${monthKey}-${String(day).padStart(2, '0')}`
-}
-
-function monthLabel(monthKey: string): string {
-  const [y, m] = monthKey.split('-').map(Number)
-  if (!y || !m) return monthKey
-  return new Date(y, m - 1, 1).toLocaleDateString('en-US', { year: 'numeric', month: 'short' })
 }
 
 interface TypeSummary {
@@ -88,24 +64,14 @@ export function DashboardPage() {
   const [selectedYear, setSelectedYear] = useState(currentYear)
   const [selectedType, setSelectedType] = useState<AssetType | null>(null)
 
-  interface MonthlyRow {
-    price: string
-    notes: string
-    originalId: number | null
-    originalPrice: number | null
-    originalNotes: string
-    originalDate: string | null
-  }
-  const [monthlyEditAsset, setMonthlyEditAsset] = useState<{ asset_name: string; currency: Currency } | null>(null)
-  const [monthlyMonths, setMonthlyMonths] = useState<string[]>([])
-  const [monthlyInputs, setMonthlyInputs] = useState<Record<string, MonthlyRow>>({})
-  const [savingMonthly, setSavingMonthly] = useState(false)
+  const [monthlyEditAsset, setMonthlyEditAsset] = useState<{ asset_name: string; currency: Currency; startMonth: string } | null>(null)
 
   const [allTransactions, setAllTransactions] = useState<Transaction[]>([])
   const [allAssets, setAllAssets] = useState<Asset[]>([])
   const [allPriceHistory, setAllPriceHistory] = useState<PriceHistory[]>([])
   const [exchangeRate, setExchangeRate] = useState(35.0)
   const [priceHistoryMap, setPriceHistoryMap] = useState<Map<string, PriceHistory[]>>(new Map())
+  const [benchmarks, setBenchmarks] = useState<BenchmarkRef[]>([])
 
   useEffect(() => {
     Promise.all([api.getTransactions(), api.getAssets(), api.getAllPriceHistory(), api.getSettings()])
@@ -114,6 +80,17 @@ export function DashboardPage() {
         setAllAssets(assets)
         setAllPriceHistory(prices)
         setExchangeRate(parseFloat(settings.exchange_rate_thb_usd ?? '35.0'))
+
+        try {
+          const parsed = JSON.parse(settings.benchmarks ?? '[]')
+          if (Array.isArray(parsed)) {
+            setBenchmarks(parsed.filter((b): b is BenchmarkRef =>
+              typeof b === 'object' && b !== null && typeof b.name === 'string' && (b.currency === 'THB' || b.currency === 'USD')
+            ))
+          }
+        } catch {
+          setBenchmarks([])
+        }
 
         const phMap = new Map<string, PriceHistory[]>()
         for (const p of prices) {
@@ -143,6 +120,21 @@ export function DashboardPage() {
   const ytdFlow = computeYtdFlow(allTransactions, exchangeRate, new Date(), selectedYear)
   const ytdTrend = computeYtdInvestmentTrend(allTransactions, exchangeRate, selectedYear)
   const quarterlyGrowth = computeQuarterlyPortfolioGrowth(allTransactions, allPriceHistory, exchangeRate, new Date(), 8, selectedYear)
+
+  const BENCHMARK_COLORS = ['#dd5b00', '#7b3ff2', '#f5d75e', '#1aae39']
+  const benchmarkSeries = benchmarks.map((b, idx) => ({
+    ref: b,
+    key: `bench__${idx}`,
+    color: BENCHMARK_COLORS[idx % BENCHMARK_COLORS.length]!,
+    values: computeBenchmarkSeries(allPriceHistory, b, quarterlyGrowth),
+  }))
+  const quarterlyChartData = quarterlyGrowth.map((point, i) => {
+    const entry: Record<string, number | string | null> = { ...point }
+    for (const series of benchmarkSeries) {
+      entry[series.key] = series.values[i] ?? null
+    }
+    return entry
+  })
 
   const portfolioHoldings = computeHoldings(allTransactions, allAssets)
   const portfolioSummaryHoldings = computeHoldings(allTransactions, allAssets, { includeClosed: true })
@@ -210,79 +202,10 @@ export function DashboardPage() {
 
   const openMonthlyEdit = useCallback((assetName: string, currency: Currency) => {
     const earliest = getEarliestTxDate(assetName, currency) ?? todayISO()
-    const startMonth = earliest.slice(0, 7)
-    const endMonth = todayISO().slice(0, 7)
-    const months = listMonths(startMonth, endMonth)
+    setMonthlyEditAsset({ asset_name: assetName, currency, startMonth: earliest.slice(0, 7) })
+  }, [getEarliestTxDate])
 
-    const existing = priceHistoryMap.get(`${assetName}:${currency}`) ?? []
-    const inputs: Record<string, MonthlyRow> = {}
-    for (const m of months) {
-      const found = existing.find((p) => p.price_date.startsWith(m))
-      inputs[m] = {
-        price: found ? String(found.price) : '',
-        notes: found?.notes ?? '',
-        originalId: found?.id ?? null,
-        originalPrice: found?.price ?? null,
-        originalNotes: found?.notes ?? '',
-        originalDate: found?.price_date ?? null,
-      }
-    }
-    setMonthlyMonths(months)
-    setMonthlyInputs(inputs)
-    setMonthlyEditAsset({ asset_name: assetName, currency })
-  }, [getEarliestTxDate, priceHistoryMap])
-
-  const closeMonthlyEdit = useCallback(() => {
-    setMonthlyEditAsset(null)
-    setMonthlyMonths([])
-    setMonthlyInputs({})
-  }, [])
-
-  const setMonthlyField = useCallback((month: string, field: 'price' | 'notes', value: string) => {
-    setMonthlyInputs((prev) => {
-      const row = prev[month]
-      if (!row) return prev
-      return { ...prev, [month]: { ...row, [field]: value } }
-    })
-  }, [])
-
-  const saveMonthlyPrices = useCallback(async () => {
-    if (!monthlyEditAsset) return
-    setSavingMonthly(true)
-    try {
-      const ops: Promise<unknown>[] = []
-      for (const month of monthlyMonths) {
-        const row = monthlyInputs[month]
-        if (!row) continue
-        const trimmed = row.price.trim()
-        const parsedPrice = trimmed === '' ? null : Number(trimmed)
-        if (parsedPrice !== null && (Number.isNaN(parsedPrice) || parsedPrice < 0)) continue
-
-        const notes = row.notes ?? ''
-        const priceChanged = parsedPrice !== row.originalPrice
-        const notesChanged = notes !== (row.originalNotes ?? '')
-
-        if (parsedPrice !== null && (priceChanged || notesChanged)) {
-          ops.push(api.upsertPriceHistory({
-            asset_name: monthlyEditAsset.asset_name,
-            currency: monthlyEditAsset.currency,
-            price_date: row.originalDate ?? lastDayOfMonth(month),
-            price: parsedPrice,
-            notes,
-          }))
-        } else if (parsedPrice === null && row.originalId !== null) {
-          ops.push(api.deletePriceHistory(row.originalId))
-        }
-      }
-      if (ops.length > 0) {
-        await Promise.all(ops)
-        bump()
-      }
-      closeMonthlyEdit()
-    } finally {
-      setSavingMonthly(false)
-    }
-  }, [monthlyEditAsset, monthlyMonths, monthlyInputs, bump, closeMonthlyEdit])
+  const closeMonthlyEdit = useCallback(() => setMonthlyEditAsset(null), [])
 
   const deleteHistory = useCallback(async (id: number) => {
     await api.deletePriceHistory(id)
@@ -414,7 +337,7 @@ export function DashboardPage() {
           {quarterlyGrowth.length > 0 && quarterlyGrowth.some((p) => p.valueTHB !== 0 || p.netFlowTHB !== 0) ? (
             <div className="growth-chart">
               <ResponsiveContainer width="100%" height={300}>
-                <AreaChart data={quarterlyGrowth} margin={{ top: 8, right: 12, left: 12, bottom: 0 }}>
+                <AreaChart data={quarterlyChartData} margin={{ top: 8, right: 12, left: 12, bottom: 0 }}>
                   <defs>
                     <linearGradient id="portfolioGrowthFill" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#5645d4" stopOpacity={0.28} />
@@ -425,7 +348,22 @@ export function DashboardPage() {
                   <XAxis dataKey="quarter" tickLine={false} axisLine={false} tick={{ fill: '#787671', fontSize: 12 }} />
                   <YAxis width={88} tickLine={false} axisLine={false} tick={{ fill: '#787671', fontSize: 12 }} tickFormatter={(v: number) => `${Math.round(v / 1000)}k`} />
                   <Tooltip formatter={(v: number | string, n: string) => [formatCurrency(Number(v), 'THB'), n]} labelFormatter={(l: string) => l} />
+                  {benchmarkSeries.length > 0 && <Legend wrapperStyle={{ fontSize: 12 }} />}
                   <Area type="monotone" dataKey="valueTHB" name="Portfolio" stroke="#5645d4" strokeWidth={3} fill="url(#portfolioGrowthFill)" dot={{ r: 3, fill: '#5645d4', strokeWidth: 0 }} activeDot={{ r: 5 }} />
+                  {benchmarkSeries.map((s) => (
+                    <Line
+                      key={s.key}
+                      type="monotone"
+                      dataKey={s.key}
+                      name={s.ref.name}
+                      stroke={s.color}
+                      strokeWidth={2}
+                      strokeDasharray="4 3"
+                      dot={{ r: 2.5, fill: s.color, strokeWidth: 0 }}
+                      activeDot={{ r: 4 }}
+                      connectNulls
+                    />
+                  ))}
                 </AreaChart>
               </ResponsiveContainer>
             </div>
@@ -622,57 +560,14 @@ export function DashboardPage() {
       )}
 
       {monthlyEditAsset && (
-        <div className="modal-backdrop" onClick={closeMonthlyEdit}>
-          <div className="modal modal-wide" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>Monthly Prices · {monthlyEditAsset.asset_name}</h2>
-              <button className="btn-icon" onClick={closeMonthlyEdit}><X size={20} /></button>
-            </div>
-            <div className="modal-body">
-              <p className="monthly-price-hint">
-                Optional — fill in any month you have a price for since purchase. Empty rows stay empty; clearing a saved row removes it.
-              </p>
-              <div className="monthly-price-list">
-                <div className="monthly-price-head">
-                  <span>Month</span>
-                  <span>Price ({monthlyEditAsset.currency})</span>
-                  <span>Note</span>
-                </div>
-                {monthlyMonths.map((month) => {
-                  const row = monthlyInputs[month]
-                  if (!row) return null
-                  return (
-                    <div key={month} className="monthly-price-row">
-                      <span className="monthly-price-month">{monthLabel(month)}</span>
-                      <input
-                        className="input input-sm"
-                        type="number"
-                        step="any"
-                        min="0"
-                        placeholder="—"
-                        value={row.price}
-                        onChange={(e) => setMonthlyField(month, 'price', e.target.value)}
-                      />
-                      <input
-                        className="input input-sm"
-                        type="text"
-                        placeholder="Optional note"
-                        value={row.notes}
-                        onChange={(e) => setMonthlyField(month, 'notes', e.target.value)}
-                      />
-                    </div>
-                  )
-                })}
-              </div>
-              <div className="modal-actions">
-                <button type="button" className="btn btn-secondary" onClick={closeMonthlyEdit} disabled={savingMonthly}>Cancel</button>
-                <button type="button" className="btn" onClick={saveMonthlyPrices} disabled={savingMonthly}>
-                  {savingMonthly ? 'Saving…' : 'Save'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <MonthlyPriceModal
+          assetName={monthlyEditAsset.asset_name}
+          currency={monthlyEditAsset.currency}
+          startMonth={monthlyEditAsset.startMonth}
+          existingHistory={priceHistoryMap.get(`${monthlyEditAsset.asset_name}:${monthlyEditAsset.currency}`) ?? []}
+          onClose={closeMonthlyEdit}
+          onSaved={bump}
+        />
       )}
     </div>
   )

@@ -1,7 +1,30 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useSettings } from '../hooks/useSettings'
 import { useAuth } from '../hooks/useAuth'
-import { RefreshCw, Database, User, LogOut } from 'lucide-react'
+import { useDatabase } from '../hooks/useDatabase'
+import { RefreshCw, Database, User, LogOut, Plus, Trash2, Edit3, TrendingUp } from 'lucide-react'
+import * as api from '../lib/api'
+import { MonthlyPriceModal } from '../components/MonthlyPriceModal'
+import type { Currency, PriceHistory } from '../types'
+
+interface Benchmark {
+  name: string
+  currency: Currency
+}
+
+function parseBenchmarks(raw: string | undefined): Benchmark[] {
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) return []
+    return parsed
+      .filter((b): b is Benchmark => typeof b === 'object' && b !== null && typeof (b as Benchmark).name === 'string' && ((b as Benchmark).currency === 'THB' || (b as Benchmark).currency === 'USD'))
+      .map((b) => ({ name: b.name.trim(), currency: b.currency }))
+      .filter((b) => b.name.length > 0)
+  } catch {
+    return []
+  }
+}
 
 export function SettingsPage() {
   const {
@@ -14,14 +37,66 @@ export function SettingsPage() {
     refreshExchangeRate,
   } = useSettings()
   const { user, logout } = useAuth()
+  const { version, bump } = useDatabase()
   const [rateInput, setRateInput] = useState(String(exchangeRate))
   const [saveMsg, setSaveMsg] = useState(false)
   const [refreshingRate, setRefreshingRate] = useState(false)
   const [refreshMsg, setRefreshMsg] = useState<string | null>(null)
 
+  const [benchmarks, setBenchmarks] = useState<Benchmark[]>([])
+  const [allPriceHistory, setAllPriceHistory] = useState<PriceHistory[]>([])
+  const [newBenchmarkName, setNewBenchmarkName] = useState('')
+  const [newBenchmarkCurrency, setNewBenchmarkCurrency] = useState<Currency>('THB')
+  const [editingBenchmark, setEditingBenchmark] = useState<Benchmark | null>(null)
+
   useEffect(() => {
     setRateInput(String(exchangeRate))
   }, [exchangeRate])
+
+  useEffect(() => {
+    Promise.all([api.getSettings(), api.getAllPriceHistory()])
+      .then(([settings, prices]) => {
+        setBenchmarks(parseBenchmarks(settings.benchmarks))
+        setAllPriceHistory(prices)
+      })
+      .catch(console.error)
+  }, [version])
+
+  const persistBenchmarks = useCallback(async (next: Benchmark[]) => {
+    setBenchmarks(next)
+    await api.setSetting('benchmarks', JSON.stringify(next))
+    bump()
+  }, [bump])
+
+  const addBenchmark = useCallback(async () => {
+    const name = newBenchmarkName.trim()
+    if (!name) return
+    if (benchmarks.some((b) => b.name === name && b.currency === newBenchmarkCurrency)) {
+      setNewBenchmarkName('')
+      return
+    }
+    await persistBenchmarks([...benchmarks, { name, currency: newBenchmarkCurrency }])
+    setNewBenchmarkName('')
+  }, [benchmarks, newBenchmarkName, newBenchmarkCurrency, persistBenchmarks])
+
+  const removeBenchmark = useCallback(async (name: string, currency: Currency) => {
+    await persistBenchmarks(benchmarks.filter((b) => !(b.name === name && b.currency === currency)))
+  }, [benchmarks, persistBenchmarks])
+
+  const benchmarkHistory = useCallback((name: string, currency: Currency): PriceHistory[] => {
+    return allPriceHistory.filter((p) => p.asset_name === name && p.currency === currency)
+  }, [allPriceHistory])
+
+  const benchmarkStartMonth = useCallback((name: string, currency: Currency): string => {
+    const series = benchmarkHistory(name, currency)
+    if (series.length > 0) {
+      const earliest = series.reduce((min, p) => (p.price_date < min ? p.price_date : min), series[0]!.price_date)
+      return earliest.slice(0, 7)
+    }
+    const d = new Date()
+    d.setMonth(d.getMonth() - 11)
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+  }, [benchmarkHistory])
 
   const handleSaveRate = () => {
     const rate = parseFloat(rateInput)
@@ -127,7 +202,81 @@ export function SettingsPage() {
             <p className="settings-message text-error">Last sync failed. Using saved rate.</p>
           )}
         </div>
+
+        <div className="card settings-card">
+          <h2 className="card-title">Benchmarks</h2>
+          <p className="card-desc">
+            Track indices like SET, S&amp;P 500 or Gold to compare against your portfolio. Add monthly prices via the editor.
+          </p>
+
+          <div className="benchmark-add-row">
+            <input
+              className="input"
+              type="text"
+              placeholder="Benchmark name (e.g. SET, S&P500)"
+              value={newBenchmarkName}
+              onChange={(e) => setNewBenchmarkName(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && addBenchmark()}
+            />
+            <select
+              className="input select"
+              value={newBenchmarkCurrency}
+              onChange={(e) => setNewBenchmarkCurrency(e.target.value as Currency)}
+            >
+              <option value="THB">THB</option>
+              <option value="USD">USD</option>
+            </select>
+            <button type="button" className="btn btn-primary" onClick={addBenchmark}>
+              <Plus size={16} /> Add
+            </button>
+          </div>
+
+          {benchmarks.length === 0 ? (
+            <div className="benchmark-empty">
+              <TrendingUp size={20} />
+              <span>No benchmarks yet. Add one to start comparing your portfolio.</span>
+            </div>
+          ) : (
+            <div className="benchmark-list">
+              {benchmarks.map((b) => {
+                const points = benchmarkHistory(b.name, b.currency).length
+                return (
+                  <div key={`${b.name}:${b.currency}`} className="benchmark-row">
+                    <div className="benchmark-meta">
+                      <strong>{b.name}</strong>
+                      <span className="text-muted">{b.currency} · {points} price{points === 1 ? '' : 's'}</span>
+                    </div>
+                    <div className="benchmark-actions">
+                      <button type="button" className="btn btn-secondary" onClick={() => setEditingBenchmark(b)}>
+                        <Edit3 size={14} /> Edit prices
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-icon danger"
+                        onClick={() => removeBenchmark(b.name, b.currency)}
+                        title="Remove benchmark"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
       </div>
+
+      {editingBenchmark && (
+        <MonthlyPriceModal
+          assetName={editingBenchmark.name}
+          currency={editingBenchmark.currency}
+          startMonth={benchmarkStartMonth(editingBenchmark.name, editingBenchmark.currency)}
+          existingHistory={benchmarkHistory(editingBenchmark.name, editingBenchmark.currency)}
+          onClose={() => setEditingBenchmark(null)}
+          onSaved={bump}
+        />
+      )}
     </div>
   )
 }
