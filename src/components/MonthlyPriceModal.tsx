@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { X } from 'lucide-react'
+import { X, Download } from 'lucide-react'
 import * as api from '../lib/api'
 import type { Currency, PriceHistory } from '../types'
 
@@ -65,6 +65,8 @@ export function MonthlyPriceModal({
   const months = useMemo(() => listMonths(startMonth, currentMonth()), [startMonth])
   const [inputs, setInputs] = useState<Record<string, MonthlyRow>>({})
   const [saving, setSaving] = useState(false)
+  const [fetching, setFetching] = useState(false)
+  const [fetchMsg, setFetchMsg] = useState<string | null>(null)
 
   useEffect(() => {
     const next: Record<string, MonthlyRow> = {}
@@ -89,6 +91,38 @@ export function MonthlyPriceModal({
       return { ...prev, [month]: { ...row, [field]: value } }
     })
   }, [])
+
+  const fetchFromYahoo = useCallback(async () => {
+    setFetching(true)
+    setFetchMsg(null)
+    try {
+      const res = await api.fetchYahooMonthly(assetName, startMonth)
+      const byMonth = new Map<string, number>()
+      for (const p of res.points) {
+        byMonth.set(p.date.slice(0, 7), p.close)
+      }
+      let filled = 0
+      setInputs((prev) => {
+        const next = { ...prev }
+        for (const m of months) {
+          const row = next[m]
+          if (!row) continue
+          if (row.price.trim() !== '') continue
+          const close = byMonth.get(m)
+          if (close === undefined) continue
+          next[m] = { ...row, price: close.toFixed(close >= 100 ? 2 : 4) }
+          filled++
+        }
+        return next
+      })
+      setFetchMsg(filled > 0 ? `Filled ${filled} month${filled === 1 ? '' : 's'}` : 'No new months filled')
+    } catch (err) {
+      setFetchMsg(err instanceof Error ? err.message : 'Failed to fetch')
+    } finally {
+      setFetching(false)
+      setTimeout(() => setFetchMsg(null), 4000)
+    }
+  }, [assetName, startMonth, months])
 
   const save = useCallback(async () => {
     setSaving(true)
@@ -133,9 +167,24 @@ export function MonthlyPriceModal({
           <button className="btn-icon" onClick={onClose}><X size={20} /></button>
         </div>
         <div className="modal-body">
-          <p className="monthly-price-hint">
-            Optional - fill in any month you have a price for. Empty rows stay empty; clearing a saved row removes it.
-          </p>
+          <div className="monthly-price-toolbar">
+            <p className="monthly-price-hint">
+              Optional - fill in any month you have a price for. Empty rows stay empty; clearing a saved row removes it.
+            </p>
+            <div className="monthly-price-fetch">
+              {fetchMsg && <span className="text-muted">{fetchMsg}</span>}
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={fetchFromYahoo}
+                disabled={fetching || saving}
+                title="Fetch monthly closes from Yahoo Finance (e.g. AAPL, BTC-USD). Fills empty rows only."
+              >
+                <Download size={14} className={fetching ? 'spin-icon' : ''} />
+                {fetching ? 'Fetching...' : 'Fetch from Yahoo'}
+              </button>
+            </div>
+          </div>
           <div className="monthly-price-list">
             <div className="monthly-price-head">
               <span>Month</span>

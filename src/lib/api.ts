@@ -172,6 +172,19 @@ export async function deletePriceHistory(id: number): Promise<void> {
   await request(`/price-history/${id}`, { method: 'DELETE' })
 }
 
+// ── Market data ──
+
+export interface MarketPricePoint {
+  date: string
+  close: number
+}
+
+export async function fetchYahooMonthly(symbol: string, startMonth?: string): Promise<{ symbol: string; source: string; points: MarketPricePoint[] }> {
+  const params = new URLSearchParams({ symbol })
+  if (startMonth) params.set('start', startMonth)
+  return request(`/market/yahoo/monthly?${params.toString()}`)
+}
+
 // ── Trading Transactions ──
 
 export async function getTradingTransactions(): Promise<TradingTransaction[]> {
