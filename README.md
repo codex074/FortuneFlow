@@ -1,202 +1,262 @@
-# FortuneFlow 💸
+# FortuneFlow
 
-> **Your personal wealth command center.** Track every investment, measure real returns, and understand exactly where your money is — all offline, all private.
-
----
+> A personal wealth tracker with portfolio analytics, allocation drift alerts, risk metrics, and benchmark comparison — across multiple currencies and asset types.
 
 ![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.7-3178C6?style=flat-square&logo=typescript&logoColor=white)
 ![Vite](https://img.shields.io/badge/Vite-6-646CFF?style=flat-square&logo=vite&logoColor=white)
-![Electron](https://img.shields.io/badge/Electron-35-47848F?style=flat-square&logo=electron&logoColor=white)
-![SQLite](https://img.shields.io/badge/SQLite-WASM-003B57?style=flat-square&logo=sqlite&logoColor=white)
-![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows-lightgrey?style=flat-square)
-![Version](https://img.shields.io/badge/Version-1.0.0-success?style=flat-square)
+![Express](https://img.shields.io/badge/Express-5-000000?style=flat-square&logo=express&logoColor=white)
+![Neon](https://img.shields.io/badge/Neon-PostgreSQL-00E599?style=flat-square&logo=postgresql&logoColor=white)
+![Vercel](https://img.shields.io/badge/Deploy-Vercel-000000?style=flat-square&logo=vercel&logoColor=white)
+![Version](https://img.shields.io/badge/Version-1.1.0-success?style=flat-square)
 
 ---
 
 ## Overview
 
-FortuneFlow is a **desktop-first wealth tracking app** built with React, TypeScript, and Electron. All data lives locally in a SQLite database stored in your browser's IndexedDB — no server, no cloud sync, no subscription. Just you and your numbers.
+FortuneFlow is a multi-user web app for tracking investments across stocks, crypto, funds, gold, bonds, savings, and cash positions in both THB and USD. It computes time-weighted returns (XIRR), risk metrics (max drawdown, volatility), allocation drift against user-defined targets, and overlays benchmark indices on portfolio growth charts.
 
-It supports **seven asset classes**, **two currencies (THB & USD)**, automatic FIFO cost-basis accounting, annualized-return calculations (XIRR & CAGR), and visual analytics that put your portfolio performance in context against real-world benchmarks.
-
----
-
-## Key Features
-
-- 📊 **Live Dashboard** — KPI cards for Total Invested (THB & USD), Current Portfolio Value, Unrealized P&L, Realized P&L, and YTD Net Flow; area charts for monthly investment trend and quarterly portfolio growth; interactive donut for asset allocation.
-- 📋 **Full Transaction Ledger** — Log `buy`, `sell`, `dividend`, `deposit`, and `withdraw` events with date, price, units, fees, and notes. Full edit and delete support.
-- 🗂️ **Asset Catalog Picker** — Search from NASDAQ, NYSE, and AMEX symbol lists when adding a new stock position.
-- 💼 **Portfolio Drill-Down** — Click any asset type on the allocation pie chart to see every holding: average cost, current price, invested amount, current value, and unrealized/realized P&L at a glance.
-- 📈 **Manual Price History** — Record timestamped price snapshots per asset; view the last five data points inline and delete stale entries.
-- 🧮 **FIFO Cost-Basis Engine** — All realized profit calculations use First-In-First-Out lot matching, giving you accurate tax-lot accounting.
-- 📐 **XIRR & CAGR Analytics** — Time-weighted annualized return per asset and across the whole portfolio, factoring in every cash-flow event.
-- 🏆 **Benchmark Comparison** — Bar chart comparing your portfolio XIRR against S&P 500 (10.3%), SET Index (5.2%), Gold (7.1%), and Cash (3%).
-- 💵 **Dividend Income Tracker** — Monthly bar chart and per-asset breakdown with yield-on-invested calculation.
-- 🔄 **Auto Exchange Rate** — Fetches live USD/THB rate on startup; falls back to the last saved rate when offline. Manual override available.
-- 💾 **Backup & Restore** — One-click SQLite database export/import; backup reminder if it has been more than 7 days since the last export.
-- 🔐 **Multi-User Auth** — Local login and registration; each user's data is isolated in a separate IndexedDB key.
-- 🖥️ **Native Desktop App** — Packaged with Electron for macOS (DMG + ZIP) and Windows (NSIS installer + ZIP).
+Auth, data, and uploads run through a small Express API backed by **Neon PostgreSQL**. The app deploys to **Vercel** as a serverless function plus a static React bundle. An optional **Electron** wrapper produces native desktop installers for macOS and Windows that point at the same hosted API.
 
 ---
 
-## Tech Stack
+## Features
 
-| Layer | Technology |
+### Portfolio tracking
+- Seven asset types: `stock`, `crypto`, `fund`, `gold`, `bond`, `savings`, `cash`
+- Two currencies: `THB`, `USD` (with configurable cross rate)
+- Transaction ledger with `buy`, `sell`, `dividend`, `interest`, `deposit`, `withdraw`
+- Auto-creation of asset rows from transactions
+- FIFO-aware avg cost; realized P&L includes dividends and interest
+- Cash ledger derived from deposits/withdrawals when used
+
+### Analytics
+- **Total Invested / Current Value / Unrealized & Realized P&L** in both currencies
+- **YTD Net Investment** with month-by-month trend
+- **Quarterly Portfolio Growth** with benchmark overlays
+- **XIRR** per holding and at portfolio level (Newton-Raphson solver)
+- **Allocation Drift** card — current vs target per asset type, with rebalance amount in THB
+- **Max Drawdown + Volatility** — annualized risk metrics from monthly price history (per holding) and quarterly portfolio values (overall)
+
+### Price data
+- Manual monthly price entry per holding via a shared modal — fill any month back to first purchase
+- **Yahoo Finance auto-fetch** to fill empty months (works for tickers like `AAPL`, `BTC-USD`, `^GSPC`, `GC=F`)
+- Server-side dedupe keeps one price per asset per month (closest to month-end)
+
+### Benchmarks
+- Add any index by name + currency in Settings (e.g. `SET` / THB, `S&P500` / USD)
+- Edit prices through the same monthly modal
+- Renders as a dashed overlay on the Quarterly Portfolio Growth chart, normalized to the portfolio value at the benchmark's first available quarter
+
+### Trading log
+- Separate ledger for short-term trades (Trading Records page) with FIFO matching
+- TFEX futures with contracts × multiplier
+- Forex with lots × lot size
+
+### Auth & account
+- Email + password registration with verification email
+- Forgot-password flow with timed reset link
+- Edit profile: change display name, change password
+- JWT-bearer auth with 30-day expiry
+
+---
+
+## Tech stack
+
+| Layer | Choice |
 |---|---|
-| UI Framework | React 19 |
+| UI framework | React 19 |
 | Language | TypeScript 5.7 |
-| Build Tool | Vite 6 |
-| Desktop Shell | Electron 35 |
-| Database | sql.js (SQLite via WebAssembly) |
-| Persistence | idb-keyval (IndexedDB) |
-| Charting | Recharts 2 |
+| Build tool | Vite 6 |
 | Routing | React Router 7 |
+| Charts | Recharts 2 |
 | Icons | Lucide React |
-| Packaging | electron-builder 25 |
+| API server | Express 5 (TypeScript via `tsx`) |
+| Database | Neon PostgreSQL (`@neondatabase/serverless`) |
+| Auth | JWT (`jsonwebtoken`) + `bcryptjs` |
+| Email | Resend |
+| Hosting | Vercel (serverless function for `/api`, static for client) |
+| Desktop shell | Electron 35 (optional) |
 
 ---
 
-## Installation & Setup
+## Project structure
+
+```
+wealth/
+├── api/
+│   └── index.ts             # Vercel serverless entry — re-exports server/app.ts
+├── server/
+│   ├── app.ts               # Express app + route mounting
+│   ├── auth.ts              # JWT middleware + signToken
+│   ├── db.ts                # Neon client + idempotent initSchema
+│   ├── email.ts             # Resend wrappers (verify + reset)
+│   ├── index.ts             # Local dev entry (listens on PORT)
+│   ├── schema.sql           # Canonical schema reference
+│   └── routes/
+│       ├── auth.ts          # register, login, verify, reset, /me, change-password
+│       ├── transactions.ts  # CRUD + auto-asset creation
+│       ├── assets.ts        # list + legacy price update
+│       ├── priceHistory.ts  # upsert/delete + monthly cleanup
+│       ├── trading.ts       # spot trading log + TFEX + forex
+│       ├── settings.ts      # generic key/value store
+│       └── market.ts        # Yahoo Finance proxy
+├── src/
+│   ├── App.tsx              # Router + auth guard
+│   ├── main.tsx
+│   ├── index.css            # Global tokens + every component style
+│   ├── components/
+│   │   ├── MonthlyPriceModal.tsx  # Shared monthly-price editor
+│   │   ├── brand/
+│   │   └── layout/
+│   ├── hooks/
+│   │   ├── useAuth.tsx      # user, login, register, logout, updateUser
+│   │   ├── useDatabase.tsx  # version + bump() for cross-page refetch
+│   │   ├── useSettings.ts   # exchange rate auto-refresh
+│   │   └── …                # legacy hooks kept for ref
+│   ├── lib/
+│   │   ├── api.ts           # All client → server fetch helpers
+│   │   ├── calc.ts          # Pure analytics: holdings, totals, XIRR, drift, risk, benchmarks
+│   │   ├── format.ts        # Currency, date, percent formatters
+│   │   └── …                # Older sql.js-era files (unused; pending cleanup)
+│   ├── pages/
+│   │   ├── DashboardPage.tsx       # Metric cards, YTD + Quarterly charts, allocation pie, drift, per-holding stats
+│   │   ├── TransactionsPage.tsx
+│   │   ├── TradingRecordPage.tsx
+│   │   ├── AnalyticsPage.tsx
+│   │   ├── SettingsPage.tsx        # Account, Exchange Rate, Target Allocation, Benchmarks
+│   │   ├── LoginPage.tsx
+│   │   ├── VerifyEmailPage.tsx
+│   │   └── ResetPasswordPage.tsx
+│   └── types/
+│       └── index.ts
+├── electron/
+│   ├── main.cjs
+│   └── preload.cjs
+├── public/
+├── scripts/
+├── .env.example
+├── vercel.json              # Rewrites /api/* to the serverless function
+├── vite.config.ts           # Defines __FORTUNEFLOW_DESKTOP_API_BASE__ for packaged builds
+└── AGENTS.md                # Notes for AI agents picking up the codebase
+```
+
+---
+
+## Setup
 
 ### Prerequisites
+- Node.js ≥ 18 (uses native `fetch` in `server/routes/market.ts`)
+- A Neon PostgreSQL connection string
+- A Resend API key (for verification + reset emails; optional in dev — verification will simply fail to send)
 
-- **Node.js** ≥ 18
-- **npm** ≥ 9
-
-### 1. Clone & Install
-
+### 1. Install
 ```bash
 git clone <repo-url>
 cd wealth
 npm install
 ```
 
-### 2. Run in the Browser (Dev Mode)
+### 2. Configure environment
+Copy `.env.example` to `.env` and fill in:
 
+| Variable | Purpose |
+|---|---|
+| `DATABASE_URL` | Neon PostgreSQL connection string (requires `?sslmode=require`) |
+| `JWT_SECRET` | Random secret — change for production |
+| `PORT` | Server port (default `3002`) |
+| `RESEND_API_KEY` | For email verification + password reset |
+| `APP_URL` | Public URL of the deployed app — used in email links (e.g. `http://localhost:5173` in dev) |
+| `VITE_API_BASE_URL` | *Optional.* Absolute API origin for packaged desktop builds. If omitted, `APP_URL + /api` is used. |
+
+### 3. Run in dev
+Runs the Vite dev server and the Express API together:
 ```bash
 npm run dev
 ```
+- Web: `http://localhost:5173` (Vite proxies `/api/*` to `http://localhost:3002`)
+- API alone: `npm run dev:server`
+- Web alone: `npm run dev:web`
 
-Opens at `http://localhost:5173`.
+The schema initializes lazily on the first request — no manual migration step.
 
-### 3. Run as a Desktop App (Electron Dev Mode)
-
-```bash
-npm run electron:dev
-```
-
-Starts the Vite dev server and launches the Electron window concurrently.
-
-### 4. Build for Production
-
+### 4. Build for production (web)
 ```bash
 npm run build
 ```
+Output goes to `dist/`. Vercel uses this with `vercel.json` rewrites to serve `/api/*` from `api/index.ts`.
 
-Output goes to `dist/`.
-
-### 5. Package the Desktop App
-
+### 5. Optional: Electron desktop
 ```bash
-# macOS
-npm run electron:dist:mac
-
-# Windows
-npm run electron:dist:win
-
-# Both platforms
-npm run electron:dist
+npm run electron:dev          # Vite + Electron together
+npm run electron:dist:mac     # DMG + ZIP into release/
+npm run electron:dist:win     # NSIS installer + ZIP into release/
+npm run electron:dist         # Both platforms
 ```
-
-Installers are written to `release/`.
+Packaged builds need `VITE_API_BASE_URL` (or `APP_URL`) set at build time so the renderer can reach the hosted API while running on `file://`.
 
 ---
 
-## Folder Structure
+## API surface
 
-```
-wealth/
-├── electron/
-│   ├── main.cjs          # Electron main process — window creation, IPC, asset catalog fetching
-│   └── preload.cjs       # Context bridge for renderer <-> main communication
-│
-├── public/
-│   ├── sql-wasm.wasm     # SQLite WebAssembly binary (Node/Electron)
-│   ├── sql-wasm-browser.wasm  # SQLite WebAssembly binary (browser)
-│   ├── icon.png          # App icon (macOS)
-│   └── icon.ico          # App icon (Windows)
-│
-├── scripts/
-│   └── electron-dev.mjs  # Dev runner — waits for Vite, then opens Electron
-│
-├── src/
-│   ├── App.tsx           # Root router with auth guards
-│   ├── main.tsx          # React entry point
-│   ├── index.css         # Global design tokens and component styles
-│   │
-│   ├── components/
-│   │   ├── brand/
-│   │   │   └── AppLogo.tsx
-│   │   └── layout/
-│   │       ├── Layout.tsx    # Shell with sidebar + Outlet
-│   │       └── Sidebar.tsx   # Navigation sidebar
-│   │
-│   ├── hooks/
-│   │   ├── useAuth.tsx        # Login / register / session state
-│   │   ├── useDatabase.tsx    # Database context — init, persist, export, import
-│   │   ├── usePortfolio.ts    # Holdings + totals derived from DB
-│   │   ├── useSettings.ts     # Exchange rate with auto-refresh
-│   │   └── useTransactions.ts # Transaction CRUD helpers
-│   │
-│   ├── lib/
-│   │   ├── analytics.ts   # XIRR/CAGR, dividend analytics, portfolio metrics
-│   │   ├── assetCatalog.ts # Asset search & catalog management
-│   │   ├── auth.ts        # Password hashing + user record helpers
-│   │   ├── calc.ts        # FIFO engine, holdings, totals, allocation, trend data
-│   │   ├── db.ts          # SQLite init, schema, migrations, export/import
-│   │   ├── exchangeRate.ts # Live USD/THB rate fetching with fallback
-│   │   ├── format.ts      # Currency, number, date, percentage formatters
-│   │   ├── queries.ts     # All SQL queries (transactions, assets, price history, settings)
-│   │   └── xirr.ts        # Newton-Raphson XIRR solver
-│   │
-│   ├── pages/
-│   │   ├── DashboardPage.tsx    # KPI cards, area charts, allocation pie, recent transactions
-│   │   ├── TransactionsPage.tsx # Full ledger with add/edit/delete
-│   │   ├── PortfolioPage.tsx    # Interactive allocation chart + per-holding drill-down
-│   │   ├── AnalyticsPage.tsx    # XIRR/CAGR table, benchmark chart, dividend income
-│   │   ├── SettingsPage.tsx     # Exchange rate, backup/restore, DB version status
-│   │   ├── LoginPage.tsx
-│   │   └── RegisterPage.tsx
-│   │
-│   └── types/
-│       └── index.ts       # Shared TypeScript types (Transaction, Asset, Holding, etc.)
-│
-├── dist/                  # Production build output
-├── release/               # Packaged desktop installers
-├── index.html             # Vite HTML entry
-├── package.json
-├── vite.config.ts
-├── tsconfig.json
-└── DESIGN-notion.md       # Design system tokens (Notion-inspired)
-```
+All routes are mounted under `/api/*`. Every route except `/api/auth/*` (the unauthenticated ones) requires `Authorization: Bearer <jwt>`.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/api/auth/register` | Create account, send verification email |
+| `GET`  | `/api/auth/verify-email/:token` | Confirm email |
+| `POST` | `/api/auth/resend-verification` | Resend verification email |
+| `POST` | `/api/auth/login` | Returns JWT + user |
+| `POST` | `/api/auth/forgot-password` | Sends reset link if email exists |
+| `POST` | `/api/auth/reset-password` | Sets new password via reset token |
+| `GET`  | `/api/auth/me` | Current user |
+| `PATCH`| `/api/auth/me` | Update display name |
+| `POST` | `/api/auth/change-password` | Change password (requires current) |
+| `GET` `POST` `PUT` `DELETE` | `/api/transactions(/...)` | Long-term ledger |
+| `GET` | `/api/transactions/recent?limit=N` | Recent N transactions |
+| `GET` `PUT` | `/api/assets(/...)` | Holdings + legacy current price |
+| `GET` `POST` `DELETE` | `/api/price-history(/...)` | Monthly price history |
+| `GET` `POST` `PUT` `DELETE` | `/api/trading/...` | Short-term spot trading log, TFEX, forex |
+| `GET` `PUT` | `/api/settings(/...)` | Per-user key/value (JSON blobs like `benchmarks`, `target_allocation`) |
+| `GET` | `/api/market/yahoo/monthly?symbol=X&start=YYYY-MM` | Yahoo Finance proxy returning monthly closes |
+| `GET` | `/api/health` | Liveness check |
 
 ---
 
-## Supported Asset Types
+## Supported asset types
 
 | Type | Description |
 |---|---|
-| `stock` | Individual equities (US markets + Thai SET) |
-| `crypto` | Cryptocurrencies |
+| `stock` | Equities (US tickers, Thai SET with `.BK`, etc.) |
+| `crypto` | Cryptocurrencies (`BTC-USD`, `ETH-USD`, …) |
 | `fund` | Mutual funds and ETFs |
-| `gold` | Physical gold or gold-backed instruments |
+| `gold` | Physical gold or gold instruments (`GC=F` for futures) |
 | `bond` | Fixed income |
 | `savings` | High-yield savings accounts |
-| `cash` | Cash balances in THB or USD |
+| `cash` | Cash balances (THB or USD) |
 
 ---
 
-## Data & Privacy
+## Settings keys
 
-FortuneFlow stores **all data locally** — nothing leaves your device. The SQLite database is serialized into IndexedDB, keyed by user ID. Use **Settings → Export** to download a portable `.db` backup file at any time.
+Some settings are stored as JSON strings in the `settings` table:
+
+| Key | Shape |
+|---|---|
+| `exchange_rate_thb_usd` | `"35.0"` (string number) |
+| `benchmarks` | `[{ "name": "SET", "currency": "THB" }, …]` |
+| `target_allocation` | `{ "stock": 60, "bond": 30, … }` percentages |
+
+---
+
+## Privacy
+
+Data lives in Neon PostgreSQL with row-level scoping by `user_id`. Passwords are bcrypt hashes (cost 12). JWTs are signed with `JWT_SECRET` and expire in 30 days. There is no analytics or telemetry in the client.
+
+---
+
+## Contributing
+
+If you're an **AI agent** continuing work on this codebase, read **`AGENTS.md`** first — it covers architecture decisions, conventions, and gotchas that aren't obvious from the code alone.
+
+If you're a human, run `npm run dev`, exercise the feature you're touching, and `npx tsc -b --force` before committing. The project has no automated test suite yet — manual verification is the bar.
