@@ -31,7 +31,6 @@ import {
   Wallet,
   DollarSign,
   CheckCircle,
-  Check,
   Edit3,
   Trash2,
   X,
@@ -39,6 +38,34 @@ import {
 
 function formatSharePct(value: number): string {
   return `${value.toFixed(1)}%`
+}
+
+function listMonths(startMonth: string, endMonth: string): string[] {
+  const [syRaw, smRaw] = startMonth.split('-').map(Number)
+  const [eyRaw, emRaw] = endMonth.split('-').map(Number)
+  if (!syRaw || !smRaw || !eyRaw || !emRaw) return []
+  let y = syRaw
+  let m = smRaw
+  const out: string[] = []
+  while (y < eyRaw || (y === eyRaw && m <= emRaw)) {
+    out.push(`${y}-${String(m).padStart(2, '0')}`)
+    m++
+    if (m > 12) { m = 1; y++ }
+  }
+  return out
+}
+
+function lastDayOfMonth(monthKey: string): string {
+  const [y, m] = monthKey.split('-').map(Number)
+  if (!y || !m) return monthKey
+  const day = new Date(y, m, 0).getDate()
+  return `${monthKey}-${String(day).padStart(2, '0')}`
+}
+
+function monthLabel(monthKey: string): string {
+  const [y, m] = monthKey.split('-').map(Number)
+  if (!y || !m) return monthKey
+  return new Date(y, m - 1, 1).toLocaleDateString('en-US', { year: 'numeric', month: 'short' })
 }
 
 interface TypeSummary {
@@ -57,10 +84,19 @@ export function DashboardPage() {
   const currentYear = new Date().getFullYear()
   const [selectedYear, setSelectedYear] = useState(currentYear)
   const [selectedType, setSelectedType] = useState<AssetType | null>(null)
-  const [editingPrice, setEditingPrice] = useState<string | null>(null)
-  const [priceInput, setPriceInput] = useState('')
-  const [priceDateInput, setPriceDateInput] = useState(todayISO())
-  const [priceNotesInput, setPriceNotesInput] = useState('')
+
+  interface MonthlyRow {
+    price: string
+    notes: string
+    originalId: number | null
+    originalPrice: number | null
+    originalNotes: string
+    originalDate: string | null
+  }
+  const [monthlyEditAsset, setMonthlyEditAsset] = useState<{ asset_name: string; currency: Currency } | null>(null)
+  const [monthlyMonths, setMonthlyMonths] = useState<string[]>([])
+  const [monthlyInputs, setMonthlyInputs] = useState<Record<string, MonthlyRow>>({})
+  const [savingMonthly, setSavingMonthly] = useState(false)
 
   const [allTransactions, setAllTransactions] = useState<Transaction[]>([])
   const [allAssets, setAllAssets] = useState<Asset[]>([])
@@ -149,7 +185,6 @@ export function DashboardPage() {
 
   const handleTypeSelect = (type: AssetType) => {
     setSelectedType(type)
-    setEditingPrice(null)
   }
 
   const handlePieClick = (entry: unknown) => {
@@ -157,21 +192,92 @@ export function DashboardPage() {
     if (type) handleTypeSelect(type)
   }
 
-  const startEditPrice = (assetName: string, currentPrice: number | null) => {
-    setEditingPrice(assetName)
-    setPriceInput(currentPrice !== null ? String(currentPrice) : '')
-    setPriceDateInput(todayISO())
-    setPriceNotesInput('')
-  }
-
-  const savePrice = useCallback(async (assetName: string, currency: Currency) => {
-    const price = parseFloat(priceInput)
-    if (!isNaN(price) && price >= 0 && priceDateInput) {
-      await api.upsertPriceHistory({ asset_name: assetName, currency, price_date: priceDateInput, price, notes: priceNotesInput })
-      bump()
+  const getEarliestTxDate = useCallback((assetName: string, currency: Currency): string | null => {
+    let earliest: string | null = null
+    let earliestBuy: string | null = null
+    for (const tx of allTransactions) {
+      if (tx.asset_name !== assetName || tx.currency !== currency) continue
+      if (earliest === null || tx.date < earliest) earliest = tx.date
+      if (tx.action === 'buy' && (earliestBuy === null || tx.date < earliestBuy)) earliestBuy = tx.date
     }
-    setEditingPrice(null)
-  }, [priceInput, priceDateInput, priceNotesInput, bump])
+    return earliestBuy ?? earliest
+  }, [allTransactions])
+
+  const openMonthlyEdit = useCallback((assetName: string, currency: Currency) => {
+    const earliest = getEarliestTxDate(assetName, currency) ?? todayISO()
+    const startMonth = earliest.slice(0, 7)
+    const endMonth = todayISO().slice(0, 7)
+    const months = listMonths(startMonth, endMonth)
+
+    const existing = priceHistoryMap.get(`${assetName}:${currency}`) ?? []
+    const inputs: Record<string, MonthlyRow> = {}
+    for (const m of months) {
+      const found = existing.find((p) => p.price_date.startsWith(m))
+      inputs[m] = {
+        price: found ? String(found.price) : '',
+        notes: found?.notes ?? '',
+        originalId: found?.id ?? null,
+        originalPrice: found?.price ?? null,
+        originalNotes: found?.notes ?? '',
+        originalDate: found?.price_date ?? null,
+      }
+    }
+    setMonthlyMonths(months)
+    setMonthlyInputs(inputs)
+    setMonthlyEditAsset({ asset_name: assetName, currency })
+  }, [getEarliestTxDate, priceHistoryMap])
+
+  const closeMonthlyEdit = useCallback(() => {
+    setMonthlyEditAsset(null)
+    setMonthlyMonths([])
+    setMonthlyInputs({})
+  }, [])
+
+  const setMonthlyField = useCallback((month: string, field: 'price' | 'notes', value: string) => {
+    setMonthlyInputs((prev) => {
+      const row = prev[month]
+      if (!row) return prev
+      return { ...prev, [month]: { ...row, [field]: value } }
+    })
+  }, [])
+
+  const saveMonthlyPrices = useCallback(async () => {
+    if (!monthlyEditAsset) return
+    setSavingMonthly(true)
+    try {
+      const ops: Promise<unknown>[] = []
+      for (const month of monthlyMonths) {
+        const row = monthlyInputs[month]
+        if (!row) continue
+        const trimmed = row.price.trim()
+        const parsedPrice = trimmed === '' ? null : Number(trimmed)
+        if (parsedPrice !== null && (Number.isNaN(parsedPrice) || parsedPrice < 0)) continue
+
+        const notes = row.notes ?? ''
+        const priceChanged = parsedPrice !== row.originalPrice
+        const notesChanged = notes !== (row.originalNotes ?? '')
+
+        if (parsedPrice !== null && (priceChanged || notesChanged)) {
+          ops.push(api.upsertPriceHistory({
+            asset_name: monthlyEditAsset.asset_name,
+            currency: monthlyEditAsset.currency,
+            price_date: row.originalDate ?? lastDayOfMonth(month),
+            price: parsedPrice,
+            notes,
+          }))
+        } else if (parsedPrice === null && row.originalId !== null) {
+          ops.push(api.deletePriceHistory(row.originalId))
+        }
+      }
+      if (ops.length > 0) {
+        await Promise.all(ops)
+        bump()
+      }
+      closeMonthlyEdit()
+    } finally {
+      setSavingMonthly(false)
+    }
+  }, [monthlyEditAsset, monthlyMonths, monthlyInputs, bump, closeMonthlyEdit])
 
   const deleteHistory = useCallback(async (id: number) => {
     await api.deletePriceHistory(id)
@@ -435,16 +541,8 @@ export function DashboardPage() {
                             <div className="holding-stat">
                               <span className="stat-label">{h.asset_type === 'cash' ? 'Rate' : 'Price'}</span>
                               <span className="stat-value">
-                                {h.asset_type === 'cash' ? '1.00' : editingPrice === h.asset_name ? (
-                                  <span className="price-edit-panel">
-                                    <input className="input input-sm" type="number" step="any" value={priceInput} onChange={(e) => setPriceInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && savePrice(h.asset_name, h.currency)} autoFocus />
-                                    <input className="input input-sm" type="date" value={priceDateInput} onChange={(e) => setPriceDateInput(e.target.value)} />
-                                    <input className="input input-sm price-note-input" type="text" placeholder="Note" value={priceNotesInput} onChange={(e) => setPriceNotesInput(e.target.value)} />
-                                    <button className="btn-icon" onClick={() => savePrice(h.asset_name, h.currency)}><Check size={14} /></button>
-                                    <button className="btn-icon" onClick={() => setEditingPrice(null)}><X size={14} /></button>
-                                  </span>
-                                ) : (
-                                  <span className="editable" onClick={() => startEditPrice(h.asset_name, h.current_price)}>
+                                {h.asset_type === 'cash' ? '1.00' : (
+                                  <span className="editable" onClick={() => openMonthlyEdit(h.asset_name, h.currency)} title="Edit monthly prices">
                                     {h.current_price !== null ? formatCurrency(h.current_price, h.currency) : 'Set price'}
                                     <Edit3 size={12} />
                                   </span>
@@ -498,6 +596,60 @@ export function DashboardPage() {
             )}
           </div>
         </>
+      )}
+
+      {monthlyEditAsset && (
+        <div className="modal-backdrop" onClick={closeMonthlyEdit}>
+          <div className="modal modal-wide" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Monthly Prices · {monthlyEditAsset.asset_name}</h2>
+              <button className="btn-icon" onClick={closeMonthlyEdit}><X size={20} /></button>
+            </div>
+            <div className="modal-body">
+              <p className="monthly-price-hint">
+                Optional — fill in any month you have a price for since purchase. Empty rows stay empty; clearing a saved row removes it.
+              </p>
+              <div className="monthly-price-list">
+                <div className="monthly-price-head">
+                  <span>Month</span>
+                  <span>Price ({monthlyEditAsset.currency})</span>
+                  <span>Note</span>
+                </div>
+                {monthlyMonths.map((month) => {
+                  const row = monthlyInputs[month]
+                  if (!row) return null
+                  return (
+                    <div key={month} className="monthly-price-row">
+                      <span className="monthly-price-month">{monthLabel(month)}</span>
+                      <input
+                        className="input input-sm"
+                        type="number"
+                        step="any"
+                        min="0"
+                        placeholder="—"
+                        value={row.price}
+                        onChange={(e) => setMonthlyField(month, 'price', e.target.value)}
+                      />
+                      <input
+                        className="input input-sm"
+                        type="text"
+                        placeholder="Optional note"
+                        value={row.notes}
+                        onChange={(e) => setMonthlyField(month, 'notes', e.target.value)}
+                      />
+                    </div>
+                  )
+                })}
+              </div>
+              <div className="modal-actions">
+                <button type="button" className="btn btn-secondary" onClick={closeMonthlyEdit} disabled={savingMonthly}>Cancel</button>
+                <button type="button" className="btn" onClick={saveMonthlyPrices} disabled={savingMonthly}>
+                  {savingMonthly ? 'Saving…' : 'Save'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
