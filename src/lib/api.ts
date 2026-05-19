@@ -1,4 +1,12 @@
-const API_BASE = '/api'
+const DESKTOP_API_BASE = __FORTUNEFLOW_DESKTOP_API_BASE__
+
+function getApiBase(): string {
+  if (window.location.protocol === 'file:') {
+    return DESKTOP_API_BASE
+  }
+
+  return '/api'
+}
 
 function getToken(): string | null {
   return localStorage.getItem('ff-token')
@@ -14,7 +22,12 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     headers['Authorization'] = `Bearer ${token}`
   }
 
-  const res = await fetch(`${API_BASE}${path}`, { ...options, headers })
+  const apiBase = getApiBase()
+  if (!apiBase) {
+    throw new Error('Desktop API URL is not configured. Set APP_URL or VITE_API_BASE_URL before building the Windows app.')
+  }
+
+  const res = await fetch(`${apiBase}${path}`, { ...options, headers })
 
   if (res.status === 401) {
     localStorage.removeItem('ff-token')
