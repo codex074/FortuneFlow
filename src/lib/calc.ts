@@ -857,6 +857,56 @@ export interface BenchmarkRef {
   currency: Currency
 }
 
+export type TargetAllocation = Partial<Record<AssetType, number>>
+
+export interface AllocationDriftRow {
+  type: AssetType
+  currentValueTHB: number
+  currentPct: number
+  targetPct: number
+  driftPct: number
+  rebalanceTHB: number
+}
+
+export function computeAllocationDrift(
+  holdings: Holding[],
+  target: TargetAllocation,
+  exchangeRate: number
+): AllocationDriftRow[] {
+  const valueByType = new Map<AssetType, number>()
+  let totalTHB = 0
+  for (const h of holdings) {
+    const rate = h.currency === 'USD' ? exchangeRate : 1
+    const value = (h.current_value ?? h.total_invested) * rate
+    if (value <= 0) continue
+    valueByType.set(h.asset_type, (valueByType.get(h.asset_type) ?? 0) + value)
+    totalTHB += value
+  }
+
+  const types = new Set<AssetType>([
+    ...valueByType.keys(),
+    ...(Object.keys(target) as AssetType[]).filter((t) => (target[t] ?? 0) > 0),
+  ])
+
+  const rows: AllocationDriftRow[] = []
+  for (const type of types) {
+    const currentValueTHB = valueByType.get(type) ?? 0
+    const currentPct = totalTHB > 0 ? (currentValueTHB / totalTHB) * 100 : 0
+    const targetPct = target[type] ?? 0
+    const targetValueTHB = (targetPct / 100) * totalTHB
+    rows.push({
+      type,
+      currentValueTHB,
+      currentPct,
+      targetPct,
+      driftPct: currentPct - targetPct,
+      rebalanceTHB: targetValueTHB - currentValueTHB,
+    })
+  }
+
+  return rows.sort((a, b) => b.targetPct - a.targetPct || b.currentPct - a.currentPct)
+}
+
 export function computeBenchmarkSeries(
   priceHistory: PriceHistory[],
   benchmark: BenchmarkRef,

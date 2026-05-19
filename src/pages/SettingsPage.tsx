@@ -5,12 +5,16 @@ import { useDatabase } from '../hooks/useDatabase'
 import { RefreshCw, Database, User, LogOut, Plus, Trash2, Edit3, TrendingUp } from 'lucide-react'
 import * as api from '../lib/api'
 import { MonthlyPriceModal } from '../components/MonthlyPriceModal'
-import type { Currency, PriceHistory } from '../types'
+import type { Currency, PriceHistory, AssetType } from '../types'
+import { ASSET_TYPE_LABELS, ASSET_TYPE_COLORS } from '../types'
+import type { TargetAllocation } from '../lib/calc'
 
 interface Benchmark {
   name: string
   currency: Currency
 }
+
+const ALL_ASSET_TYPES: AssetType[] = ['stock', 'crypto', 'fund', 'gold', 'bond', 'savings', 'cash']
 
 function parseBenchmarks(raw: string | undefined): Benchmark[] {
   if (!raw) return []
@@ -23,6 +27,22 @@ function parseBenchmarks(raw: string | undefined): Benchmark[] {
       .filter((b) => b.name.length > 0)
   } catch {
     return []
+  }
+}
+
+function parseTargetAllocation(raw: string | undefined): TargetAllocation {
+  if (!raw) return {}
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    if (typeof parsed !== 'object' || parsed === null) return {}
+    const out: TargetAllocation = {}
+    for (const key of ALL_ASSET_TYPES) {
+      const v = (parsed as Record<string, unknown>)[key]
+      if (typeof v === 'number' && Number.isFinite(v) && v >= 0) out[key] = v
+    }
+    return out
+  } catch {
+    return {}
   }
 }
 
@@ -49,6 +69,11 @@ export function SettingsPage() {
   const [newBenchmarkCurrency, setNewBenchmarkCurrency] = useState<Currency>('THB')
   const [editingBenchmark, setEditingBenchmark] = useState<Benchmark | null>(null)
 
+  const [targetInputs, setTargetInputs] = useState<Record<AssetType, string>>(
+    () => Object.fromEntries(ALL_ASSET_TYPES.map((t) => [t, ''])) as Record<AssetType, string>
+  )
+  const [targetSaveMsg, setTargetSaveMsg] = useState<string | null>(null)
+
   useEffect(() => {
     setRateInput(String(exchangeRate))
   }, [exchangeRate])
@@ -58,9 +83,30 @@ export function SettingsPage() {
       .then(([settings, prices]) => {
         setBenchmarks(parseBenchmarks(settings.benchmarks))
         setAllPriceHistory(prices)
+        const target = parseTargetAllocation(settings.target_allocation)
+        setTargetInputs(
+          Object.fromEntries(ALL_ASSET_TYPES.map((t) => [t, target[t] !== undefined ? String(target[t]) : ''])) as Record<AssetType, string>
+        )
       })
       .catch(console.error)
   }, [version])
+
+  const targetTotal = ALL_ASSET_TYPES.reduce((sum, t) => {
+    const v = parseFloat(targetInputs[t])
+    return sum + (Number.isFinite(v) && v > 0 ? v : 0)
+  }, 0)
+
+  const saveTargetAllocation = useCallback(async () => {
+    const next: TargetAllocation = {}
+    for (const t of ALL_ASSET_TYPES) {
+      const v = parseFloat(targetInputs[t])
+      if (Number.isFinite(v) && v > 0) next[t] = v
+    }
+    await api.setSetting('target_allocation', JSON.stringify(next))
+    bump()
+    setTargetSaveMsg('Saved')
+    setTimeout(() => setTargetSaveMsg(null), 2000)
+  }, [targetInputs, bump])
 
   const persistBenchmarks = useCallback(async (next: Benchmark[]) => {
     setBenchmarks(next)
@@ -201,6 +247,48 @@ export function SettingsPage() {
           {exchangeRateLastError && (
             <p className="settings-message text-error">Last sync failed. Using saved rate.</p>
           )}
+        </div>
+
+        <div className="card settings-card">
+          <h2 className="card-title">Target Allocation</h2>
+          <p className="card-desc">
+            Set your goal percentage per asset type. The dashboard will show how far each type drifts and how much to rebalance.
+          </p>
+          <div className="target-allocation-grid">
+            {ALL_ASSET_TYPES.map((t) => (
+              <label key={t} className="target-allocation-row">
+                <span className="target-type-label">
+                  <span className="legend-dot" style={{ backgroundColor: ASSET_TYPE_COLORS[t] }} />
+                  {ASSET_TYPE_LABELS[t]}
+                </span>
+                <div className="target-input-wrap">
+                  <input
+                    className="input input-sm"
+                    type="number"
+                    step="any"
+                    min="0"
+                    max="100"
+                    placeholder="0"
+                    value={targetInputs[t]}
+                    onChange={(e) => setTargetInputs((prev) => ({ ...prev, [t]: e.target.value }))}
+                  />
+                  <span className="target-input-suffix">%</span>
+                </div>
+              </label>
+            ))}
+          </div>
+          <div className="target-allocation-footer">
+            <span className={`target-total ${Math.abs(targetTotal - 100) < 0.01 ? 'text-success' : targetTotal > 100 ? 'text-error' : 'text-muted'}`}>
+              Total: {targetTotal.toFixed(1)}%
+              {Math.abs(targetTotal - 100) >= 0.01 && targetTotal > 0 && (
+                <span> (should be 100%)</span>
+              )}
+            </span>
+            <div className="target-actions">
+              {targetSaveMsg && <span className="text-success">{targetSaveMsg}</span>}
+              <button type="button" className="btn btn-primary" onClick={saveTargetAllocation}>Save</button>
+            </div>
+          </div>
         </div>
 
         <div className="card settings-card">

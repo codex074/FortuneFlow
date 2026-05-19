@@ -9,11 +9,13 @@ import {
   computeYtdInvestmentTrend,
   computeQuarterlyPortfolioGrowth,
   computeBenchmarkSeries,
+  computeAllocationDrift,
   groupByAssetType,
   computeHoldingXirrs,
   computePortfolioXirr,
   holdingKey,
   type BenchmarkRef,
+  type TargetAllocation,
 } from '../lib/calc'
 import { formatCurrency, formatPct, formatDate, formatNumber, todayISO } from '../lib/format'
 import { ASSET_TYPE_LABELS, ASSET_TYPE_COLORS, type AssetType, type Currency, type Transaction, type Asset, type PriceHistory, type Holding } from '../types'
@@ -72,6 +74,7 @@ export function DashboardPage() {
   const [exchangeRate, setExchangeRate] = useState(35.0)
   const [priceHistoryMap, setPriceHistoryMap] = useState<Map<string, PriceHistory[]>>(new Map())
   const [benchmarks, setBenchmarks] = useState<BenchmarkRef[]>([])
+  const [targetAllocation, setTargetAllocation] = useState<TargetAllocation>({})
 
   useEffect(() => {
     Promise.all([api.getTransactions(), api.getAssets(), api.getAllPriceHistory(), api.getSettings()])
@@ -90,6 +93,21 @@ export function DashboardPage() {
           }
         } catch {
           setBenchmarks([])
+        }
+
+        try {
+          const parsed = JSON.parse(settings.target_allocation ?? '{}')
+          if (parsed && typeof parsed === 'object') {
+            const next: TargetAllocation = {}
+            for (const [k, v] of Object.entries(parsed)) {
+              if (typeof v === 'number' && Number.isFinite(v) && v >= 0) {
+                next[k as AssetType] = v
+              }
+            }
+            setTargetAllocation(next)
+          }
+        } catch {
+          setTargetAllocation({})
         }
 
         const phMap = new Map<string, PriceHistory[]>()
@@ -142,6 +160,8 @@ export function DashboardPage() {
   const portfolioAlloc = allocationByType(portfolioHoldings, exchangeRate)
   const holdingXirrs = computeHoldingXirrs(allTransactions, portfolioSummaryHoldings)
   const portfolioXirr = computePortfolioXirr(allTransactions, portfolioSummaryHoldings, exchangeRate)
+  const driftRows = computeAllocationDrift(portfolioHoldings, targetAllocation, exchangeRate)
+  const hasTargetAllocation = driftRows.some((r) => r.targetPct > 0)
   const totalAllocationTHB = portfolioAlloc.reduce((sum, item) => sum + item.value, 0)
   const grouped = groupByAssetType(portfolioHoldings)
   const groupedSummary = groupByAssetType(portfolioSummaryHoldings)
@@ -372,6 +392,63 @@ export function DashboardPage() {
           )}
         </div>
       </div>
+
+      {hasTargetAllocation && portfolioHoldings.length > 0 && (
+        <div className="card">
+          <div className="portfolio-card-header">
+            <div>
+              <h2 className="card-title">Allocation Drift</h2>
+              <p className="card-desc">Compare current allocation against your target. Positive drift = overweight, negative = underweight.</p>
+            </div>
+          </div>
+          <div className="drift-card-list">
+            {driftRows.filter((r) => r.targetPct > 0 || r.currentValueTHB > 0).map((row) => {
+              const maxPct = Math.max(row.targetPct, row.currentPct, 1)
+              const scale = 100 / Math.max(maxPct * 1.1, 10)
+              const currentWidth = Math.min(row.currentPct * scale, 100)
+              const targetPos = Math.min(row.targetPct * scale, 100)
+              const driftPositive = row.driftPct >= 0
+              const rebalanceAction = row.rebalanceTHB > 0 ? 'Buy' : row.rebalanceTHB < 0 ? 'Sell' : 'On target'
+              const rebalanceColor = Math.abs(row.driftPct) < 1
+                ? 'success'
+                : Math.abs(row.driftPct) < 5
+                  ? ''
+                  : 'error'
+
+              return (
+                <div key={row.type} className="drift-row">
+                  <span className="drift-type">
+                    <span className="legend-dot" style={{ backgroundColor: ASSET_TYPE_COLORS[row.type] }} />
+                    {ASSET_TYPE_LABELS[row.type]}
+                  </span>
+                  <div className="drift-bar-wrap">
+                    <div className="drift-bar-labels">
+                      <span>{row.currentPct.toFixed(1)}%</span>
+                      <span className={driftPositive ? 'text-error' : 'text-success'}>
+                        {row.targetPct > 0 ? `${driftPositive ? '+' : ''}${row.driftPct.toFixed(1)}% drift` : 'No target'}
+                      </span>
+                      <span>Target {row.targetPct.toFixed(1)}%</span>
+                    </div>
+                    <div className="drift-bar">
+                      <div
+                        className="drift-bar-current"
+                        style={{ width: `${currentWidth}%`, backgroundColor: ASSET_TYPE_COLORS[row.type], opacity: 0.55 }}
+                      />
+                      {row.targetPct > 0 && <div className="drift-bar-target" style={{ left: `${targetPos}%` }} />}
+                    </div>
+                  </div>
+                  <div className="drift-action">
+                    <span className="stat-label">{rebalanceAction}</span>
+                    <strong className={rebalanceColor === 'error' ? 'text-error' : rebalanceColor === 'success' ? 'text-success' : ''}>
+                      {Math.abs(row.rebalanceTHB) < 1 ? '—' : formatCurrency(Math.abs(row.rebalanceTHB), 'THB')}
+                    </strong>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {portfolioHoldings.length === 0 ? (
         <div className="empty-state card"><p>No holdings yet. Add transactions to see your portfolio.</p></div>

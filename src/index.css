@@ -923,6 +923,75 @@ a { color: var(--brand); text-decoration: none; }
 }
 .monthly-price-row .input-sm { width: 100%; }
 
+.target-allocation-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px; margin-top: 14px;
+}
+.target-allocation-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; padding: 10px 12px;
+  background: var(--page-bg); border-radius: var(--r-lg);
+}
+.target-type-label {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 13px; color: var(--ink-2); font-weight: 500;
+}
+.target-input-wrap {
+  display: inline-flex; align-items: center; gap: 4px;
+}
+.target-input-wrap .input-sm { width: 70px; text-align: right; }
+.target-input-suffix { color: var(--ink-4); font-size: 12px; }
+.target-allocation-footer {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-top: 14px; gap: 12px; flex-wrap: wrap;
+}
+.target-total { font-size: 13px; font-weight: 500; }
+.target-actions { display: flex; align-items: center; gap: 10px; }
+
+.drift-card-list {
+  display: flex; flex-direction: column; gap: 12px;
+  margin-top: 4px;
+}
+.drift-row {
+  display: grid;
+  grid-template-columns: minmax(96px, 0.9fr) 1fr minmax(140px, auto);
+  align-items: center; gap: 12px;
+  padding: 10px 14px;
+  background: var(--page-bg); border-radius: var(--r-lg);
+}
+.drift-type {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 13px; font-weight: 500; color: var(--ink);
+}
+.drift-bar-wrap {
+  display: flex; flex-direction: column; gap: 4px; min-width: 0;
+}
+.drift-bar-labels {
+  display: flex; justify-content: space-between;
+  font-size: 11.5px; color: var(--ink-4);
+}
+.drift-bar {
+  position: relative; height: 8px; background: var(--card-bg);
+  border-radius: var(--r-full); overflow: hidden;
+}
+.drift-bar-target {
+  position: absolute; top: 0; bottom: 0; width: 2px;
+  background: var(--ink-3);
+}
+.drift-bar-current {
+  position: absolute; top: 0; left: 0; bottom: 0;
+  border-radius: var(--r-full);
+}
+.drift-action {
+  text-align: right; font-size: 12.5px; line-height: 1.4;
+}
+.drift-action strong { display: block; font-size: 13px; font-weight: 600; }
+.drift-action .stat-label { display: block; margin-bottom: 2px; }
+@media (max-width: 560px) {
+  .drift-row { grid-template-columns: 1fr; }
+  .drift-action { text-align: left; }
+}
+
 .benchmark-add-row {
   display: flex; gap: 8px; align-items: center;
   margin-top: 14px; flex-wrap: wrap;
