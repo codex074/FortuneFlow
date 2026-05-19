@@ -857,6 +857,70 @@ export interface BenchmarkRef {
   currency: Currency
 }
 
+export interface RiskMetrics {
+  maxDrawdownPct: number | null
+  volatilityPct: number | null
+  samples: number
+}
+
+function maxDrawdownFromSeries(values: number[]): number | null {
+  if (values.length < 2) return null
+  let peak = values[0]!
+  let maxDd = 0
+  for (const v of values) {
+    if (v > peak) peak = v
+    if (peak > 0) {
+      const dd = (peak - v) / peak
+      if (dd > maxDd) maxDd = dd
+    }
+  }
+  return maxDd * 100
+}
+
+function stdevOfReturns(values: number[]): number | null {
+  if (values.length < 2) return null
+  const returns: number[] = []
+  for (let i = 1; i < values.length; i++) {
+    const prev = values[i - 1]!
+    if (prev <= 0) continue
+    returns.push((values[i]! - prev) / prev)
+  }
+  if (returns.length < 2) return null
+  const mean = returns.reduce((s, r) => s + r, 0) / returns.length
+  const variance = returns.reduce((s, r) => s + (r - mean) ** 2, 0) / (returns.length - 1)
+  return Math.sqrt(variance)
+}
+
+export function computeRiskFromSeries(values: number[], periodsPerYear: number): RiskMetrics {
+  const maxDrawdownPct = maxDrawdownFromSeries(values)
+  const stdev = stdevOfReturns(values)
+  const volatilityPct = stdev !== null ? stdev * Math.sqrt(periodsPerYear) * 100 : null
+  return { maxDrawdownPct, volatilityPct, samples: values.length }
+}
+
+export function computeHoldingRisk(
+  priceHistory: PriceHistory[],
+  assetName: string,
+  currency: Currency
+): RiskMetrics {
+  const series = priceHistory
+    .filter((p) => p.asset_name === assetName && p.currency === currency)
+    .map((p) => ({ date: p.price_date, price: p.price }))
+    .sort((a, b) => a.date.localeCompare(b.date))
+
+  const monthly = new Map<string, number>()
+  for (const p of series) monthly.set(p.date.slice(0, 7), p.price)
+  const values = Array.from(monthly.values())
+  return computeRiskFromSeries(values, 12)
+}
+
+export function computePortfolioRisk(
+  quarterlyValues: { valueTHB: number }[]
+): RiskMetrics {
+  const values = quarterlyValues.map((q) => q.valueTHB).filter((v) => v > 0)
+  return computeRiskFromSeries(values, 4)
+}
+
 export type TargetAllocation = Partial<Record<AssetType, number>>
 
 export interface AllocationDriftRow {

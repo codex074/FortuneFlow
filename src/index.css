@@ -272,6 +272,7 @@ a { color: var(--brand); text-decoration: none; }
 .metric-value.success { color: var(--success); }
 .metric-value.error   { color: var(--error); }
 .metric-partial { font-size: 9px; font-weight: 600; color: var(--ink-4); letter-spacing: 0.3px; opacity: .8; }
+.metric-secondary { color: var(--ink-4); font-weight: 500; }
 
 /* ============================================
    Cards

@@ -10,6 +10,8 @@ import {
   computeQuarterlyPortfolioGrowth,
   computeBenchmarkSeries,
   computeAllocationDrift,
+  computeHoldingRisk,
+  computePortfolioRisk,
   groupByAssetType,
   computeHoldingXirrs,
   computePortfolioXirr,
@@ -162,6 +164,7 @@ export function DashboardPage() {
   const portfolioXirr = computePortfolioXirr(allTransactions, portfolioSummaryHoldings, exchangeRate)
   const driftRows = computeAllocationDrift(portfolioHoldings, targetAllocation, exchangeRate)
   const hasTargetAllocation = driftRows.some((r) => r.targetPct > 0)
+  const portfolioRisk = computePortfolioRisk(quarterlyGrowth)
   const totalAllocationTHB = portfolioAlloc.reduce((sum, item) => sum + item.value, 0)
   const grouped = groupByAssetType(portfolioHoldings)
   const groupedSummary = groupByAssetType(portfolioSummaryHoldings)
@@ -321,6 +324,19 @@ export function DashboardPage() {
             <div className="metric-label">Annualized Return (XIRR)</div>
             <div className={`metric-value ${portfolioXirr === null ? '' : portfolioXirr >= 0 ? 'success' : 'error'}`}>
               {portfolioXirr !== null ? formatPct(portfolioXirr) : '—'}
+            </div>
+          </div>
+        </div>
+        <div className="metric-card" title="Max drawdown = largest peak-to-trough drop. Volatility = annualized stdev of quarterly returns.">
+          <div className="metric-icon-wrap rose"><TrendingDown size={18} /></div>
+          <div className="metric-body">
+            <div className="metric-label">Max Drawdown / Volatility</div>
+            <div className="metric-value">
+              {portfolioRisk.maxDrawdownPct !== null ? `-${portfolioRisk.maxDrawdownPct.toFixed(1)}%` : '—'}
+              <span className="metric-secondary">
+                {' / '}
+                {portfolioRisk.volatilityPct !== null ? `${portfolioRisk.volatilityPct.toFixed(1)}%` : '—'}
+              </span>
             </div>
           </div>
         </div>
@@ -557,6 +573,9 @@ export function DashboardPage() {
                     const phKey = `${h.asset_name}:${h.currency}`
                     const priceHistory = h.asset_type !== 'cash' ? (priceHistoryMap.get(phKey) ?? []).slice(0, 5) : []
                     const holdingXirr = holdingXirrs.get(holdingKey(h.asset_name, h.asset_type, h.currency)) ?? null
+                    const holdingRisk = h.asset_type === 'cash'
+                      ? { maxDrawdownPct: null, volatilityPct: null, samples: 0 }
+                      : computeHoldingRisk(allPriceHistory, h.asset_name, h.currency)
 
                     return (
                       <div key={h.asset_name} className="portfolio-holding-item">
@@ -599,6 +618,18 @@ export function DashboardPage() {
                               <div className="holding-stat" title="Annualized return (XIRR) — accounts for timing of cashflows">
                                 <span className="stat-label">Return/yr</span>
                                 <span className={`stat-value ${holdingXirr >= 0 ? 'text-success' : 'text-error'}`}>{formatPct(holdingXirr)}</span>
+                              </div>
+                            )}
+                            {holdingRisk.maxDrawdownPct !== null && (
+                              <div className="holding-stat" title="Largest peak-to-trough drop in monthly price history">
+                                <span className="stat-label">Max DD</span>
+                                <span className="stat-value text-error">-{holdingRisk.maxDrawdownPct.toFixed(1)}%</span>
+                              </div>
+                            )}
+                            {holdingRisk.volatilityPct !== null && (
+                              <div className="holding-stat" title="Annualized standard deviation of monthly returns">
+                                <span className="stat-label">Vol/yr</span>
+                                <span className="stat-value">{holdingRisk.volatilityPct.toFixed(1)}%</span>
                               </div>
                             )}
                           </div>
