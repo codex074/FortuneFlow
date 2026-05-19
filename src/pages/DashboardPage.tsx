@@ -9,6 +9,9 @@ import {
   computeYtdInvestmentTrend,
   computeQuarterlyPortfolioGrowth,
   groupByAssetType,
+  computeHoldingXirrs,
+  computePortfolioXirr,
+  holdingKey,
 } from '../lib/calc'
 import { formatCurrency, formatPct, formatDate, formatNumber, todayISO } from '../lib/format'
 import { ASSET_TYPE_LABELS, ASSET_TYPE_COLORS, type AssetType, type Currency, type Transaction, type Asset, type PriceHistory, type Holding } from '../types'
@@ -145,6 +148,8 @@ export function DashboardPage() {
   const portfolioSummaryHoldings = computeHoldings(allTransactions, allAssets, { includeClosed: true })
   const portfolioTotals = computeTotals(portfolioSummaryHoldings, exchangeRate)
   const portfolioAlloc = allocationByType(portfolioHoldings, exchangeRate)
+  const holdingXirrs = computeHoldingXirrs(allTransactions, portfolioSummaryHoldings)
+  const portfolioXirr = computePortfolioXirr(allTransactions, portfolioSummaryHoldings, exchangeRate)
   const totalAllocationTHB = portfolioAlloc.reduce((sum, item) => sum + item.value, 0)
   const grouped = groupByAssetType(portfolioHoldings)
   const groupedSummary = groupByAssetType(portfolioSummaryHoldings)
@@ -365,6 +370,17 @@ export function DashboardPage() {
             </div>
           </div>
         </div>
+        <div className="metric-card" title="Annualized return (XIRR) — weights each cashflow by date">
+          <div className={`metric-icon-wrap ${portfolioXirr !== null && portfolioXirr >= 0 ? 'emerald' : 'rose'}`}>
+            {portfolioXirr !== null && portfolioXirr >= 0 ? <TrendingUp size={18} /> : <TrendingDown size={18} />}
+          </div>
+          <div className="metric-body">
+            <div className="metric-label">Annualized Return (XIRR)</div>
+            <div className={`metric-value ${portfolioXirr === null ? '' : portfolioXirr >= 0 ? 'success' : 'error'}`}>
+              {portfolioXirr !== null ? formatPct(portfolioXirr) : '—'}
+            </div>
+          </div>
+        </div>
       </div>
 
       <div className="dashboard-grid">
@@ -525,6 +541,7 @@ export function DashboardPage() {
                   {selectedSummary.items.map((h) => {
                     const phKey = `${h.asset_name}:${h.currency}`
                     const priceHistory = h.asset_type !== 'cash' ? (priceHistoryMap.get(phKey) ?? []).slice(0, 5) : []
+                    const holdingXirr = holdingXirrs.get(holdingKey(h.asset_name, h.asset_type, h.currency)) ?? null
 
                     return (
                       <div key={h.asset_name} className="portfolio-holding-item">
@@ -561,6 +578,12 @@ export function DashboardPage() {
                               <div className="holding-stat">
                                 <span className="stat-label">Realized P&amp;L</span>
                                 <span className={`stat-value ${h.realized_profit >= 0 ? 'text-success' : 'text-error'}`}>{formatCurrency(h.realized_profit, h.currency)}</span>
+                              </div>
+                            )}
+                            {h.asset_type !== 'cash' && holdingXirr !== null && (
+                              <div className="holding-stat" title="Annualized return (XIRR) — accounts for timing of cashflows">
+                                <span className="stat-label">Return/yr</span>
+                                <span className={`stat-value ${holdingXirr >= 0 ? 'text-success' : 'text-error'}`}>{formatPct(holdingXirr)}</span>
                               </div>
                             )}
                           </div>

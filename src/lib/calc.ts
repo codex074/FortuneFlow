@@ -115,8 +115,8 @@ export function computeCashLedger(transactions: Transaction[]): CashLedgerEntry[
   return ledger.sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id)
 }
 
-function holdingKey(assetName: string, assetType: AssetType, currency: Currency): string {
-  return `${assetName}\u0000${assetType}\u0000${currency}`
+export function holdingKey(assetName: string, assetType: AssetType, currency: Currency): string {
+  return `${assetName}|${assetType}|${currency}`
 }
 
 interface ComputeHoldingsOptions {
@@ -351,6 +351,126 @@ export function computeTradingPositions(transactions: TradingTransaction[]): Tra
     })
   }
   return positions.sort((a, b) => a.asset_name.localeCompare(b.asset_name))
+}
+
+export interface CashFlow {
+  date: string
+  amount: number
+}
+
+export function xirr(flows: CashFlow[]): number | null {
+  if (flows.length < 2) return null
+
+  const sorted = [...flows].sort((a, b) => a.date.localeCompare(b.date))
+  const hasPositive = sorted.some((f) => f.amount > 0)
+  const hasNegative = sorted.some((f) => f.amount < 0)
+  if (!hasPositive || !hasNegative) return null
+
+  const epochDay = 24 * 3600 * 1000
+  const t0 = new Date(`${sorted[0]!.date}T00:00:00`).getTime()
+  const years = sorted.map((f) => (new Date(`${f.date}T00:00:00`).getTime() - t0) / (365 * epochDay))
+  if (years[years.length - 1]! <= 0) return null
+
+  let rate = 0.1
+  for (let iter = 0; iter < 200; iter++) {
+    let npv = 0
+    let dnpv = 0
+    for (let i = 0; i < sorted.length; i++) {
+      const t = years[i]!
+      const cf = sorted[i]!.amount
+      const base = 1 + rate
+      if (base <= 0) { rate = -0.999; npv = NaN; break }
+      const factor = Math.pow(base, t)
+      npv += cf / factor
+      dnpv -= (cf * t) / (factor * base)
+    }
+    if (!Number.isFinite(npv) || Math.abs(dnpv) < 1e-12) return null
+    const next = rate - npv / dnpv
+    if (!Number.isFinite(next)) return null
+    if (Math.abs(next - rate) < 1e-7) return next * 100
+    rate = next <= -1 ? -0.999 : next
+  }
+  return null
+}
+
+function todayDateISO(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+export function computeHoldingCashflows(
+  transactions: Transaction[],
+  assetName: string,
+  assetType: AssetType,
+  currency: Currency,
+  currentValue: number | null,
+  asOfDate: string = todayDateISO()
+): CashFlow[] {
+  const flows: CashFlow[] = []
+  for (const tx of transactions) {
+    if (tx.asset_name !== assetName || tx.asset_type !== assetType || tx.currency !== currency) continue
+    if (tx.action === 'buy') {
+      flows.push({ date: tx.date, amount: -tx.total_cost })
+    } else if (tx.action === 'sell') {
+      flows.push({ date: tx.date, amount: tx.price_per_unit * tx.units - tx.fees })
+    } else if (tx.action === 'dividend' || tx.action === 'interest') {
+      flows.push({ date: tx.date, amount: tx.total_cost })
+    }
+  }
+  if (currentValue !== null && currentValue > 0) {
+    flows.push({ date: asOfDate, amount: currentValue })
+  }
+  return flows
+}
+
+export function computeHoldingXirrs(
+  transactions: Transaction[],
+  holdings: Holding[],
+  asOfDate: string = todayDateISO()
+): Map<string, number | null> {
+  const result = new Map<string, number | null>()
+  for (const h of holdings) {
+    if (h.asset_type === 'cash') continue
+    const flows = computeHoldingCashflows(
+      transactions,
+      h.asset_name,
+      h.asset_type,
+      h.currency,
+      h.current_value,
+      asOfDate
+    )
+    result.set(holdingKey(h.asset_name, h.asset_type, h.currency), xirr(flows))
+  }
+  return result
+}
+
+export function computePortfolioXirr(
+  transactions: Transaction[],
+  holdings: Holding[],
+  exchangeRate: number,
+  asOfDate: string = todayDateISO()
+): number | null {
+  const flows: CashFlow[] = []
+  for (const tx of transactions) {
+    if (tx.asset_type === 'cash' || tx.action === 'deposit' || tx.action === 'withdraw') continue
+    const rate = tx.currency === 'USD' ? exchangeRate : 1
+    if (tx.action === 'buy') {
+      flows.push({ date: tx.date, amount: -tx.total_cost * rate })
+    } else if (tx.action === 'sell') {
+      flows.push({ date: tx.date, amount: (tx.price_per_unit * tx.units - tx.fees) * rate })
+    } else if (tx.action === 'dividend' || tx.action === 'interest') {
+      flows.push({ date: tx.date, amount: tx.total_cost * rate })
+    }
+  }
+  let currentValueTHB = 0
+  for (const h of holdings) {
+    if (h.asset_type === 'cash') continue
+    if (h.current_value === null) continue
+    const rate = h.currency === 'USD' ? exchangeRate : 1
+    currentValueTHB += h.current_value * rate
+  }
+  if (currentValueTHB > 0) flows.push({ date: asOfDate, amount: currentValueTHB })
+  return xirr(flows)
 }
 
 export function computeRealizedProfit(transactions: Transaction[]): number {
