@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { useSettings } from '../hooks/useSettings'
 import { useAuth } from '../hooks/useAuth'
 import { useDatabase } from '../hooks/useDatabase'
-import { RefreshCw, Database, User, LogOut, Plus, Trash2, Edit3, TrendingUp } from 'lucide-react'
+import { RefreshCw, Database, User, LogOut, Plus, Trash2, Edit3, TrendingUp, X, KeyRound } from 'lucide-react'
 import * as api from '../lib/api'
 import { MonthlyPriceModal } from '../components/MonthlyPriceModal'
 import type { Currency, PriceHistory, AssetType } from '../types'
@@ -56,7 +56,7 @@ export function SettingsPage() {
     setExchangeRate,
     refreshExchangeRate,
   } = useSettings()
-  const { user, logout } = useAuth()
+  const { user, logout, updateUser } = useAuth()
   const { version, bump } = useDatabase()
   const [rateInput, setRateInput] = useState(String(exchangeRate))
   const [saveMsg, setSaveMsg] = useState(false)
@@ -73,6 +73,81 @@ export function SettingsPage() {
     () => Object.fromEntries(ALL_ASSET_TYPES.map((t) => [t, ''])) as Record<AssetType, string>
   )
   const [targetSaveMsg, setTargetSaveMsg] = useState<string | null>(null)
+
+  const [profileOpen, setProfileOpen] = useState(false)
+  const [displayNameInput, setDisplayNameInput] = useState('')
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [profileSaving, setProfileSaving] = useState(false)
+  const [profileError, setProfileError] = useState<string | null>(null)
+  const [profileSuccess, setProfileSuccess] = useState<string | null>(null)
+
+  const openProfile = useCallback(() => {
+    setDisplayNameInput(user?.displayName ?? '')
+    setCurrentPassword('')
+    setNewPassword('')
+    setConfirmPassword('')
+    setProfileError(null)
+    setProfileSuccess(null)
+    setProfileOpen(true)
+  }, [user])
+
+  const closeProfile = useCallback(() => {
+    setProfileOpen(false)
+  }, [])
+
+  const saveProfile = useCallback(async () => {
+    setProfileError(null)
+    setProfileSuccess(null)
+    const nextName = displayNameInput.trim()
+    if (!nextName) {
+      setProfileError('Display name cannot be empty')
+      return
+    }
+    const wantsPasswordChange = currentPassword.length > 0 || newPassword.length > 0 || confirmPassword.length > 0
+    if (wantsPasswordChange) {
+      if (newPassword.length < 6) {
+        setProfileError('New password must be at least 6 characters')
+        return
+      }
+      if (newPassword !== confirmPassword) {
+        setProfileError('New password and confirmation do not match')
+        return
+      }
+      if (!currentPassword) {
+        setProfileError('Enter your current password to change it')
+        return
+      }
+    }
+
+    setProfileSaving(true)
+    try {
+      const nameChanged = nextName !== (user?.displayName ?? '')
+      if (nameChanged) {
+        const updated = await api.updateProfile(nextName)
+        updateUser(updated)
+      }
+      if (wantsPasswordChange) {
+        await api.changePassword(currentPassword, newPassword)
+        setCurrentPassword('')
+        setNewPassword('')
+        setConfirmPassword('')
+      }
+      const msg = nameChanged && wantsPasswordChange
+        ? 'Profile and password updated'
+        : wantsPasswordChange
+          ? 'Password updated'
+          : nameChanged
+            ? 'Display name updated'
+            : 'Nothing to update'
+      setProfileSuccess(msg)
+    } catch (err) {
+      setProfileError(err instanceof Error ? err.message : 'Failed to update profile')
+    } finally {
+      setProfileSaving(false)
+    }
+  }, [displayNameInput, currentPassword, newPassword, confirmPassword, user, updateUser])
 
   useEffect(() => {
     setRateInput(String(exchangeRate))
@@ -196,9 +271,14 @@ export function SettingsPage() {
               <span className="text-muted">{user?.email ?? ''}</span>
             </div>
           </div>
-          <button className="btn btn-secondary" onClick={logout} style={{ marginTop: 12 }}>
-            <LogOut size={16} /> Sign Out
-          </button>
+          <div className="account-actions">
+            <button className="btn btn-primary" onClick={openProfile}>
+              <Edit3 size={16} /> Edit Profile
+            </button>
+            <button className="btn btn-secondary" onClick={logout}>
+              <LogOut size={16} /> Sign Out
+            </button>
+          </div>
         </div>
 
         <div className="card settings-card">
@@ -364,6 +444,74 @@ export function SettingsPage() {
           onClose={() => setEditingBenchmark(null)}
           onSaved={bump}
         />
+      )}
+
+      {profileOpen && (
+        <div className="modal-backdrop" onClick={closeProfile}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Edit Profile</h2>
+              <button className="btn-icon" onClick={closeProfile}><X size={20} /></button>
+            </div>
+            <form
+              className="modal-body"
+              onSubmit={(e) => { e.preventDefault(); saveProfile() }}
+            >
+              <div className="profile-section">
+                <h3 className="profile-section-title"><User size={14} /> Display Name</h3>
+                <input
+                  className="input"
+                  type="text"
+                  value={displayNameInput}
+                  onChange={(e) => setDisplayNameInput(e.target.value)}
+                  placeholder="Your name"
+                  maxLength={80}
+                  required
+                />
+                <p className="profile-section-hint">Email: <strong>{user?.email}</strong> (cannot be changed)</p>
+              </div>
+
+              <div className="profile-section">
+                <h3 className="profile-section-title"><KeyRound size={14} /> Change Password</h3>
+                <p className="profile-section-hint">Leave blank to keep your current password.</p>
+                <input
+                  className="input"
+                  type="password"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  placeholder="Current password"
+                  autoComplete="current-password"
+                />
+                <input
+                  className="input"
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="New password (min 6 chars)"
+                  autoComplete="new-password"
+                />
+                <input
+                  className="input"
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="Confirm new password"
+                  autoComplete="new-password"
+                />
+              </div>
+
+              {profileError && <p className="text-error settings-message">{profileError}</p>}
+              {profileSuccess && <p className="text-success settings-message">{profileSuccess}</p>}
+
+              <div className="modal-actions">
+                <button type="button" className="btn btn-secondary" onClick={closeProfile} disabled={profileSaving}>Close</button>
+                <button type="submit" className="btn btn-primary" disabled={profileSaving}>
+                  {profileSaving ? 'Saving...' : 'Save Changes'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
     </div>
   )

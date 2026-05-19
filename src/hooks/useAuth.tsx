@@ -7,6 +7,7 @@ interface AuthCtx {
   login: (email: string, password: string) => Promise<void>
   register: (email: string, password: string, displayName: string) => Promise<void>
   logout: () => void
+  updateUser: (user: api.AuthUser) => void
 }
 
 const AuthContext = createContext<AuthCtx | null>(null)
@@ -46,8 +47,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null)
   }, [])
 
+  const updateUser = useCallback((next: api.AuthUser) => {
+    localStorage.setItem('ff-user', JSON.stringify(next))
+    setUser(next)
+  }, [])
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, register, logout, updateUser }}>
       {children}
     </AuthContext.Provider>
   )

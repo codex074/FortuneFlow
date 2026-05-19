@@ -242,4 +242,71 @@ router.get('/me', authMiddleware, async (req, res) => {
   }
 })
 
+router.patch('/me', authMiddleware, async (req, res) => {
+  try {
+    const { userId } = (req as AuthRequest).user!
+    const displayName = typeof req.body?.displayName === 'string' ? req.body.displayName.trim() : ''
+    if (!displayName) {
+      res.status(400).json({ error: 'Display name is required' })
+      return
+    }
+    if (displayName.length > 80) {
+      res.status(400).json({ error: 'Display name is too long' })
+      return
+    }
+    const result = await sql`
+      UPDATE users SET display_name = ${displayName}
+      WHERE id = ${userId}
+      RETURNING id, email, display_name
+    `
+    if (result.length === 0) {
+      res.status(404).json({ error: 'User not found' })
+      return
+    }
+    const user = result[0]!
+    res.json({ id: user.id, email: user.email, displayName: user.display_name })
+  } catch (err) {
+    console.error('Update profile error:', err)
+    res.status(500).json({ error: 'Failed to update profile' })
+  }
+})
+
+router.post('/change-password', authMiddleware, async (req, res) => {
+  try {
+    const { userId } = (req as AuthRequest).user!
+    const { currentPassword, newPassword } = req.body ?? {}
+    if (typeof currentPassword !== 'string' || typeof newPassword !== 'string') {
+      res.status(400).json({ error: 'Current and new passwords are required' })
+      return
+    }
+    if (newPassword.length < 6) {
+      res.status(400).json({ error: 'New password must be at least 6 characters' })
+      return
+    }
+    if (currentPassword === newPassword) {
+      res.status(400).json({ error: 'New password must be different from current password' })
+      return
+    }
+
+    const result = await sql`SELECT password_hash FROM users WHERE id = ${userId}`
+    if (result.length === 0) {
+      res.status(404).json({ error: 'User not found' })
+      return
+    }
+    const valid = await bcrypt.compare(currentPassword, result[0]!.password_hash as string)
+    if (!valid) {
+      res.status(401).json({ error: 'Current password is incorrect' })
+      return
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, 12)
+    await sql`UPDATE users SET password_hash = ${passwordHash} WHERE id = ${userId}`
+
+    res.json({ message: 'Password changed successfully' })
+  } catch (err) {
+    console.error('Change password error:', err)
+    res.status(500).json({ error: 'Failed to change password' })
+  }
+})
+
 export default router

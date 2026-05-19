@@ -1655,3 +1655,28 @@ a { color: var(--brand); text-decoration: none; }
 .account-details .text-muted {
   font-size: 13px;
 }
+
+.account-actions {
+  display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap;
+}
+.account-actions .btn { flex: 0 1 auto; }
+
+.profile-section {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 14px; background: var(--page-bg);
+  border-radius: var(--r-lg); margin-bottom: 14px;
+}
+.profile-section-title {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; font-weight: 600; color: var(--ink-2);
+  text-transform: uppercase; letter-spacing: 0.4px;
+  margin: 0 0 2px;
+}
+.profile-section-title svg { color: var(--brand); }
+.profile-section-hint {
+  margin: 0; font-size: 12px; color: var(--ink-4); line-height: 1.5;
+}
+@media (max-width: 560px) {
+  .account-actions { flex-direction: column; }
+  .account-actions .btn { width: 100%; justify-content: center; }
+}
